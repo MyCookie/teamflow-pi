@@ -58,6 +58,8 @@ Two pieces, because one limit must apply only to the main session:
 
 ## Recommendation
 
+Accepted by the human on 2026-11-05 as decision D3.
+
 **Option C.** It is the only option that meets all four needs, and teamflow-pi
 needs an extension for D4 (`spawnHook`) anyway, so it adds a flag and two
 handlers to code that will exist regardless. A is the fallback if the
