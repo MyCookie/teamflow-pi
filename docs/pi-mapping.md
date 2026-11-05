@@ -18,7 +18,7 @@ example). The port depends on **pi-subagents** for everything agent-shaped.
 | teamflow uses (Claude Code) | Pi equivalent | Fit |
 |---|---|---|
 | Plugin + marketplace (`.claude-plugin/`) | Pi package: `package.json` with a `pi` key, installed by `pi install npm:…`/`git:…` | Good |
-| Plugin dependencies (ponytail, mattpocock-skills) | None; bundle into the tarball | **Gap** |
+| Plugin dependencies (ponytail, mattpocock-skills) | None; bundle into the tarball | **Gap**; D6: ponytail installed separately (it is a Pi package), mattpocock dropped |
 | `agents/*.md` subagents | pi-subagents agent files | Good, fields differ |
 | `Agent(subagent_type)` tool | `subagent({agent, task, …})` tool | Good |
 | `Agent(…)` lists + `hooks/check-spawn` spawn table | `allowedAgents` frontmatter, intersected down the tree | Good, replaces the hook |
@@ -26,7 +26,7 @@ example). The port depends on **pi-subagents** for everything agent-shaped.
 | `isolation: worktree` | `worktree: true` per call | Good |
 | `skills:` preload (full text) | `skills:` in agent frontmatter, lazy (list + path) | Partial |
 | Plugin `bin/` on `PATH` (how agents find `tf`) | None; bash `spawnHook` extension or absolute path | **Gap** |
-| `claude --agent teamflow:manager` | None; `--append-system-prompt`, prompt template, or extension | **Gap** |
+| `claude --agent teamflow:manager` | None; `--append-system-prompt`, prompt template, or extension | **Gap**; see [research/manager-startup.md](research/manager-startup.md) |
 | `SendMessage` resume of a live child by agent ID | `subagent({action:"resume", id, message})`: new child from stored session | Changed semantics |
 | `SubagentHandback` / completion notice | async completion message triggers a parent turn | Good |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` | `PI_SUBAGENT_MAX_DEPTH` (default 2) | Good |
@@ -71,7 +71,7 @@ Field mapping (Pi fields from `PS/docs/agents.md:398-477`):
 | teamflow field | Pi field | Note |
 |---|---|---|
 | `name`, `description` | `name`, `description` | Same; add `package: teamflow` |
-| `model: claude-opus-5-5` | `model` | Pi model ids depend on the provider configured; a decision |
+| `model: claude-opus-5-5` | `model` | Omitted under D5: falls back to `subagents.defaultModel`, then the parent's model; `subagents.agentOverrides.<name>.model` pins one (`PS/docs/models.md:5-14`) |
 | `effort: high` | `thinking` | *inferred* equivalent |
 | `tools` | `tools` (strict allowlist) | Pi built-ins: `read bash edit write grep find ls` (`pi --help`) |
 | `disallowedTools` | `excludeTools` | |
@@ -164,7 +164,8 @@ template run as `/name` (`PD/docs/prompt-templates.md:9-19`), or an extension
 that sets the prompt in `before_agent_start` and registers a flag
 (`PD/docs/extensions.md:615-657,1862`). Launching the manager itself as a
 subagent would make the chain main → manager → lead → worker, depth 3, over
-the default of 2.
+the default of 2. The options compared, and a recommendation:
+[research/manager-startup.md](research/manager-startup.md).
 
 ## Permissions and headless
 
@@ -190,5 +191,6 @@ therefore still reaches the main session; children get it only with
 - An agent turn cap (`maxTurns`).
 - A frontmatter default for worktree isolation (only the per-call flag was read).
 - A package validation command for the gate.
-- A Pi build of `ponytail`. `~/.pi/agent/skills/` on this machine has
-  `domain-modeling` (from mattpocock) but no `ponytail*`.
+- ponytail is not installed for Pi on this machine. It is a Pi package
+  (`pi install git:github.com/DietrichGebert/ponytail`, its README.md:177;
+  read in the local Claude plugin copy), so this is an install step, not a gap.

@@ -20,8 +20,9 @@ been built or run on Pi.
    made of, sorted by how much each part depends on Claude Code.
 2. [docs/pi-mapping.md](docs/pi-mapping.md): what Pi and pi-subagents offer
    for each of those parts, with citations, and the gaps.
-3. [docs/porting-plan.md](docs/porting-plan.md): open decisions, phases with
-   done checks, and risks.
+3. [docs/porting-plan.md](docs/porting-plan.md): the decisions made, phases
+   with done checks, and risks.
+4. [docs/research/](docs/research/): research behind a decision.
 
 [AGENTS.md](AGENTS.md) holds the rules for agents working in this repository.
 

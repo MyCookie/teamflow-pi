@@ -28,10 +28,12 @@ PRs go only through `bin/tf`, in `local` mode (records under
 The rules live once, in `skills/workflow/SKILL.md`; agent prompts point to
 it. Read that file first when you need the behaviour, not this summary.
 
-## Tier 1: harness-agnostic, copy as-is
+## Tier 1: harness-agnostic
 
 Python and shell with no Claude Code dependency (checked by grep for
-`claude`, `CLAUDE_`, `plugin`):
+`claude`, `CLAUDE_`, `plugin`). Under decision D1 nothing is copied: these
+are described in Phase 1 and rebuilt from that description, so their
+behaviour carries over unchanged.
 
 | Path | What it is | Coupling found |
 |---|---|---|
@@ -40,9 +42,9 @@ Python and shell with no Claude Code dependency (checked by grep for
 | `templates/gate.sh`, `templates/ci.yml`, `templates/branch-ruleset.json`, `templates/pull_request_template.md` | What `tf setup` installs in a target repo | None found |
 | `tests/test_tf.py`, `tests/fake_gh.py`, `tests/test_setup.py` | Unit tests for `tf` and `tf setup` (`python3 -m unittest discover -s tests`) | Only through the config path above |
 
-Decision needed: keep the config at `.claude/teamflow.json` (one config
-for both harnesses) or move it (for example `.pi/teamflow.json`). See
-[porting-plan.md](porting-plan.md), Open decisions.
+The config moves to `.pi/teamflow.json` (decision D2 in
+[porting-plan.md](porting-plan.md)). Where `tf setup`'s `.claude/worktrees/`
+ignore entry goes depends on where pi-subagents puts worktrees (spike 4).
 
 ## Tier 2: rules that carry over, wording that does not
 
@@ -58,7 +60,8 @@ review and merge, honesty) are harness-agnostic. The Claude Code parts:
 - *Role bounds*: read-only enforced by `disallowedTools`.
 - *Release*: version in `.claude-plugin/plugin.json`,
   `claude plugin update teamflow@teamflow --scope project`.
-- *Domain language*: `domain-modeling` from the `mattpocock-skills` plugin.
+- *Domain language*: `domain-modeling` from the `mattpocock-skills` plugin
+  (dropped under decision D6).
 
 ## Tier 3: Claude Code mechanisms, redesign for Pi
 

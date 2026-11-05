@@ -7,14 +7,17 @@ is the teamflow repository (local checkout:
 ## Before you work
 
 - Read [docs/porting-plan.md](docs/porting-plan.md): find the phase you are
-  in and its done check. A phase starts only when the one before passed, and
-  only when the decisions it depends on (D1 to D7) are answered.
+  in and its done check, and the decisions (D1 to D7) it builds on. A phase
+  starts only when the one before passed.
 - For a Claude Code mechanism, look it up in
   [docs/pi-mapping.md](docs/pi-mapping.md); for a teamflow file, in
   [docs/source-inventory.md](docs/source-inventory.md).
 
 ## Rules
 
+- **Build from the description, not from teamflow's files** (D1). Code and
+  prompts here are written new against `docs/teamflow/`; teamflow is the
+  reference you check that description against.
 - **Pipeline rules come from teamflow's `skills/workflow/SKILL.md`.** Change
   only the harness wording; a change to a rule itself is a decision for the
   human.
