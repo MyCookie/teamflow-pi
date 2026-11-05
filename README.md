@@ -14,6 +14,11 @@ records or on GitHub.
 **Not started.** This repository holds only the planning docs. Nothing has
 been built or run on Pi.
 
+**Who builds it.** Pi itself builds the extension
+(Phase 3), working from [AGENTS.md](AGENTS.md) and
+[docs/extension-spec.md](docs/extension-spec.md). Who does the other phases
+is not decided yet.
+
 ## Read in this order
 
 1. [docs/source-inventory.md](docs/source-inventory.md): what teamflow is
@@ -22,7 +27,9 @@ been built or run on Pi.
    for each of those parts, with citations, and the gaps.
 3. [docs/porting-plan.md](docs/porting-plan.md): the decisions made, phases
    with done checks, and risks.
-4. [docs/research/](docs/research/): research behind a decision.
+4. [docs/extension-spec.md](docs/extension-spec.md): the extension, part by
+   part, for the agent that builds it.
+5. [docs/research/](docs/research/): research behind a decision.
 
 [AGENTS.md](AGENTS.md) holds the rules for agents working in this repository.
 

@@ -38,8 +38,10 @@ check fails stops the plan.
 ### Phase 0: spikes (answer the unknowns first)
 
 Small throwaway Pi sessions, one per question, each recorded in
-`docs/spikes.md` with the command, the Pi and pi-subagents versions, and
-what was observed:
+`docs/spikes.md` with the command, the Pi and pi-subagents versions, the
+model, and what was observed. Under D5 children run on the parent's model,
+so a spike tests the mechanism with the model's behaviour on top: when a
+check fails, note whether Pi refused the action or the model did not try it.
 
 1. **Nested spawn with `allowedAgents`.** Main session → agent A
    (`tools: subagent`, `allowedAgents: B`) → agent B. Then A tries to spawn
@@ -90,11 +92,15 @@ Done: every section names its teamflow source (file and commit), and every
 
 ### Phase 3: the extension
 
+Built by Pi, from
+[extension-spec.md](extension-spec.md), which breaks it into three parts,
+each with an example to copy, a tested pure function and a check.
+
 - `spawnHook` putting the package's `bin/` on `PATH` (D4, from spike 5).
 - The manager flag, ceiling and main-session spawn check (D3, from spike 7).
-- Done: in an installed package, `pi --teamflow` gets the manager prompt,
-  `tf mode` prints `local`, and a `subagent` call for `implementer` from the
-  main session is refused.
+- Done: the spec's Done section, and in an installed package
+  `pi --teamflow` gets the manager prompt, `tf mode` prints `local`, and a
+  `subagent` call for `implementer` from the main session is refused.
 
 ### Phase 4: agents and the workflow skill
 
