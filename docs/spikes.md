@@ -397,3 +397,91 @@ and its child run `86906f5e-…/run-0/session.jsonl`:
   `CODE-ALPHA-7`. The protocol markers came through exactly.
 
 **Status: DONE** (run 2026-11-06T20:43Z–20:46Z)
+
+## Spike 4 — Worktree
+
+**Question.** `subagent({…, worktree: true})` — is the child's `pwd` a git
+worktree? Where does it live, and what is its branch name? (Matters for
+what `tf setup` needs to gitignore.) Mechanism facts re-read on 0.86.0:
+default dedicated root is `{dirname(repoRoot)}/worktrees`; leaf is
+`{root}/{projectName}/pi-worktree-{runId}-{index}`; branch prefix defaults
+to `pi-subagents/`; the source checkout must be clean; cleanly captured
+temporary worktrees and branches are removed after the child
+(`PS/docs/configuration.md:628-648`, `PS/docs/workflows.md:500`). Worktrunk
+is not installed on this machine, so provider `auto` used Pi's native Git
+implementation (`configuration.md:644`).
+
+**Done check.** The child's `pwd` is a git worktree; note where it lives and
+its branch name.
+
+### Setup
+
+One throwaway agent in user scope (`~/.pi/agent/agents/spike4/`, deleted
+after the run): `tools: bash`, body telling it to run `pwd`,
+`git rev-parse --abbrev-ref HEAD`, `git worktree list` and report each
+output verbatim, then an `IS-WORKTREE:` line. Source checkout was clean
+(`git status --porcelain` empty, HEAD at `78ddefb`).
+
+### Command
+
+```sh
+cd /Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi
+env -u PI_MODEL -u PI_PROVIDER -u PI_REASONING_LEVEL \
+    -u PI_SESSION_ID -u PI_SESSION_FILE \
+  pi -p "Use the subagent tool to launch the agent spike4-a with worktree set to true and async set to false, with the task: Run these bash commands and report each output verbatim, labelled: 1. pwd  2. git rev-parse --abbrev-ref HEAD  3. git worktree list. Then end with one line starting with IS-WORKTREE: answering yes if you are inside a git worktree that is not the main checkout, no otherwise.
+Your final message must quote the child's full report verbatim." \
+    --model vllm/nvidia/Qwen3.8-27B-NVFP4 --thinking off
+```
+
+### Output
+
+Child's report, verbatim (run `b44ee6c8-4c48-477f-ac91-ea8ba4552cd5`):
+
+```
+1. pwd:
+/Users/Ashish/SynologyDrive/Projects/Pi/worktrees/teamflow-pi/pi-worktree-b44ee6c8-4c48-477f-ac91-ea8ba4552cd5-0
+
+2. git rev-parse --abbrev-ref HEAD:
+pi-subagents/spike4-a-Run-these-bash-commands-and-report-each-output-verbatim-labelled-1.-pwd-2.-git-4393845c-b44ee6c-712f-s0-t0
+
+3. git worktree list:
+/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi  78ddefb [main]
+/Users/Ashish/SynologyDrive/Projects/Pi/worktrees/teamflow-pi/pi-worktree-b44ee6c8-4c48-477f-ac91-ea8ba4552cd5-0 78ddefb [pi-subagents/spike4-a-…]
+
+IS-WORKTREE: yes — cwd matches the second entry in `git worktree list`, a
+linked worktree, while the main checkout is …/teamflow-pi on `main`.
+```
+
+Parent-side verification after the run (ran):
+
+- `git worktree list` → only the main checkout (`78ddefb [main]`).
+- `git branch --list 'pi-subagents/*'` → empty.
+- `/Users/Ashish/SynologyDrive/Projects/Pi/worktrees/teamflow-pi/` → still
+  exists but is empty (dedicated root outlives the leaf).
+- Artifacts in the project session dir:
+  `subagent-artifacts/b44ee6c8-…_spike4-a_0_{input,output,meta,transcript}`
+  (note the `_0_` fan-out index in the names).
+
+### Observed
+
+- **Done check passes:** the child started in a managed linked worktree.
+- **Location:** the documented default —
+  `{dirname(repoRoot)}/worktrees/{projectName}/pi-worktree-{runId}-{index}`
+  = `/Users/Ashish/SynologyDrive/Projects/Pi/worktrees/teamflow-pi/pi-worktree-<runId>-0`.
+  A **sibling of the repository checkout, not inside it** — so
+  `tf setup` needs no `.gitignore` entry in the repo itself under default
+  config (only if a user points `worktreeBaseDir` inside the checkout, which
+  pi-subagents rejects anyway: unsafe locations fail setup,
+  `configuration.md:636`).
+- **Branch name:** `pi-subagents/` prefix + agent name + sanitized task
+  text + run/fan-out suffixes, e.g.
+  `pi-subagents/spike4-a-Run-these-bash-commands-and-report-each-output-verbatim-labelled-1.-pwd-2.-git-4393845c-b44ee6c-712f-s0-t0`.
+  Long; anything that parses branch names should match on the prefix.
+- **Auto-cleanup confirmed:** after the child finished, the worktree and
+  branch were removed from `git worktree list` and `git branch`; only the
+  empty dedicated-root directory remains. Artifacts (output/transcript/meta)
+  persist in `subagent-artifacts/`.
+- The worktree branched from the clean source HEAD (`78ddefb`) — same
+  commit as the main checkout in `git worktree list`.
+
+**Status: DONE** (run 2026-11-06T21:08Z–21:11Z)
