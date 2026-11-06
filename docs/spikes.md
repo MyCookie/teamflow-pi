@@ -608,3 +608,70 @@ of PATH** in this background child's shell environment".
 
 **Status: DONE** (attempt 1 run 2026-11-06T21:21Z–21:32Z;
 attempt 2 run 2026-11-06T21:39Z–21:42Z)
+
+## Spike 6 — skill access from a child
+
+**Question.** Can an agent launched by Pi read the `skills/workflow`
+skill? Skills are read-only, so the test is purely: the child loads the
+skill and quotes it.
+
+**Done check.** The reply quotes a line from
+`skills/workflow/SKILL.md`.
+
+### Setup
+
+- Skill installed at the user-scope discovery location
+  `~/.pi/agent/skills/workflow/SKILL.md` — a read-only copy of the real
+  teamflow skill (reference checkout at `423109c`, 584 lines, frontmatter
+  `name: workflow`). Deleted after the run. (This mirrors D6: the
+teamflow package installs skills into a Pi-discoverable directory.)
+- Throwaway agent `~/.pi/agent/agents/spike6/spike6-a.md` (deleted after):
+  `tools: read, bash`, `skills: workflow`.
+
+Mechanism facts re-read in pi-subagents 0.86.0
+(`PS/docs/agents.md:620–666`, the Skills section): skills are `SKILL.md`
+files; the child prompt gets metadata + absolute location, and the child
+reads the file when the task matches (lines 622, 646–659); discovery order
+is project config → packages → user `~/.pi/agent/skills/` → user settings
+(lines 624–631); frontmatter `skills` selects specific skills "regardless
+of `inheritSkills`" (line 648); with an explicit `tools` allowlist plus
+resolved skills, `read` is added automatically for that run (line 662);
+missing skills warn, they don't fail (line 664).
+
+### What was run (2026-11-06T22:22Z–22:24Z)
+
+Headless main; task to the child: load the workflow skill and report (1)
+the exact two-invariants sentence verbatim, (2) the verbatim `## Teams`
+table row describing the manager.
+
+Child's reply (verbatim, run `92230935-…`, exit 0, meta
+`skills: ["workflow"]`):
+
+```
+(1) Two invariants: **`main` is always green**, and **nothing merges on its
+author's say-so.**
+
+(2) | manager | the three leads | Routes goals, runs every handoff
+(including each PR's rounds between impl-lead and review-lead), counts
+each PR's rounds, governs the optional review-implement loop |
+```
+
+### Verified against the source
+
+`grep -n` on the reference file: line 16 `Two invariants: **`main` is
+always green**, and **nothing merges on its` and line 29 the manager table
+row — both match the child's quotes character-for-character (the invariants
+sentence wraps across lines 16–17 in the source).
+
+### Observed
+
+- **Done check passes:** the child loaded the user-scope skill and quoted
+  the body verbatim; the run's meta records the selection
+  (`skills: ["workflow"]`).
+- The `skills:` frontmatter selection worked with the ambient user skills
+dir containing ~36 other pre-existing skills; the child received exactly
+the selected skill.
+- No `inheritSkills` setting was needed; the explicit selection is the
+durable mechanism (agents.md:648).
+
+**Status: DONE** (run 2026-11-06T22:22Z–22:24Z)
