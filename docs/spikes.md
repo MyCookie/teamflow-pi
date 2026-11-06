@@ -485,3 +485,66 @@ Parent-side verification after the run (ran):
   commit as the main checkout in `git worktree list`.
 
 **Status: DONE** (run 2026-11-06T21:08Z–21:11Z)
+
+## Spike 5 — `tf` on PATH (D4)
+
+**Question.** How do agents find `tf`? The plan's setup: a `spawnHook`
+extension, in the main session and in a foreground and a background child.
+
+**Done check.** `command -v tf` succeeds in all three.
+
+### What was actually run (2026-11-06T21:21Z)
+
+No `spawnHook` extension was installed for this run (checked: no
+`~/.pi/agent/extensions/` dir; user `settings.json` `packages` is only
+pi-subagents, pi-memory, ask-user-question, ponytail). Instead the launcher
+put a stub on the **process** PATH: `/tmp/spike5-tf/bin/tf` printing
+`TF-STUB-OK from /tmp/spike5-tf/bin/tf`, with `/tmp/spike5-tf/bin` first in
+the launching shell's `PATH`, and ran this headless session on it.
+The probe therefore measures PATH **inheritance** across spawn contexts,
+not the D4 extension itself.
+
+Three probes, all `command -v tf && tf`, verbatim results:
+
+- Main session bash: exit 0 —
+  `/tmp/spike5-tf/bin/tf` / `TF-STUB-OK from /tmp/spike5-tf/bin/tf`
+  (the main session's own bash has `/tmp/spike5-tf/bin` as PATH entry 1).
+- `spike5-fg` (`async: false`, mission `f58f1323-…`, run
+  `bfcb181e-3f1a-4aac-b355-1f7478b06b3f`): same two lines, exit 0.
+- `spike5-bg` (`async: true`, mission `cb324a2d-…`, run
+  `27dc724e-d08c-4d64-a6ae-db395ea9334a`): **empty output, exit 1** —
+  `command -v tf` failed and short-circuited the `&&`.
+
+### Transcript evidence (read, not run)
+
+Background child's own session file
+(`~/.pi/agent/sessions/…/2026-11-06T21-21-38-…_01a1b2bd-…/
+27dc724e-…/run-0/session.jsonl`):
+
+1. First bash call `command -v tf && tf` → tool result verbatim: `(no
+   output)  Command exited with code 1`.
+2. The child's diagnostic call printed its PATH: `/Users/Ashish/.pi/agent/bin
+   :/Users/Ashish/.local/bin:/Users/Ashish/Library/Python/3.12/bin
+   :/opt/homebrew/bin:/opt/local/sbin:/opt/local/bin:/usr/local/bin
+   :…(system defaults)` — no `/tmp/spike5-tf/bin`; `tf` in none of the
+   checked bin dirs.
+
+### Observed
+
+- **Done check fails (first failure): `command -v tf` succeeds in main and
+  the foreground child, not the background child.**
+- Not a Pi refusal and not model non-compliance: all three contexts ran the
+  bash command; the probe is environment, not action. The detached
+  background child's bash starts from the default system PATH, while the
+  main session and foreground children inherit the launcher's process
+  PATH.
+- Consequence for D4: process-level PATH injection in the launching shell
+  is **insufficient** — it does not survive into detached background
+  children. The real D4 mechanism must be session-level: the plan's
+  `spawnHook` extension that puts the package `bin/` on `PATH` per session,
+  which by definition reaches main, foreground, and background children
+  alike.
+
+**Status: FAIL (1st)** — next: install a `spawnHook` extension per the
+plan and rerun the same three-context probe; if it fails a second time,
+stop and report to the human (AGENTS.md).
