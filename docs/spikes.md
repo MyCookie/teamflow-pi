@@ -243,3 +243,157 @@ Session tree under
   headless `pi -p` process.
 
 **Status: DONE** (run 2026-11-06T18:29Z–18:31Z)
+
+## Spike 3 — Resume
+
+**Question.** Main spawns A, A returns, main runs `resume` on A with a
+message. Does the revived A remember its first task? Mechanism facts
+re-read on 0.86.0: a top-level `{action:"resume"}` is detached and returns
+a background-run receipt (`PS/docs/tool-reference.md:195`); it revives
+"paused, completed, or failed async/foreground child" by starting a new
+child from the stored session file, which requires a persisted `.jsonl`
+(`tool-reference.md:376,381`).
+
+**Done check.** A's reply shows it remembers its first task.
+
+### Setup
+
+One throwaway agent in user scope (`~/.pi/agent/agents/spike3/`, deleted
+after the run):
+
+```markdown
+---
+name: spike3-a
+description: Spike 3 memory agent (to be resumed after it finishes)
+---
+
+You are spike3-a in a porting spike. Remember everything the user tells you
+in this conversation, especially any code word. If asked for the code word,
+answer with exactly: CODE-<the code word>
+```
+
+### Command
+
+Same environment as spike 1 (from
+`/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi`). The main prompt
+drives three steps: (1) spawn `spike3-a` with `async:false`, task "Remember
+the code word ALPHA-7 for the rest of this conversation. Reply with exactly:
+FIRST-TURN"; (2) from the result's id, call `subagent({action:"resume", id,
+message})` with message "What was the code word I told you to remember on
+your first turn? Reply with exactly: CODE-<the code word>"; (3) end the turn
+right after step 2; when the completion notice arrives, quote the revived
+child's exact reply and add a `VERDICT:` line.
+
+```sh
+env -u PI_MODEL -u PI_PROVIDER -u PI_REASONING_LEVEL \
+    -u PI_SESSION_ID -u PI_SESSION_FILE \
+  pi -p "Step 1: Use the subagent tool with async:false to launch the agent spike3-a with the task: Remember the code word ALPHA-7 for the rest of this conversation. Reply with exactly: FIRST-TURN
+Step 2: From the step 1 result, find the run id (the id after 'Mission:'). Then call the subagent tool with action 'resume', that id, and the message: What was the code word I told you to remember on your first turn? Reply with exactly: CODE-<the code word>
+Step 3: The resume runs in the background and returns a receipt immediately. Right after step 2, end your turn with the single line: RESUME-SENT <the run id>. When the completion notice for that resumed run arrives, your final message must contain: (a) the revived child's exact reply, quoted; (b) one line starting with 'VERDICT:' stating whether it remembered the code word ALPHA-7. If the notice does not include the child's reply, first call the subagent tool with action 'status', that id, and options {view: 'transcript'}, then quote its final reply." \
+    --model vllm/nvidia/Qwen3.8-27B-NVFP4 --thinking off
+```
+
+### Output
+
+Main session final message:
+
+```
+Spike 3 result — the resume worked and the revived child remembered.
+
+(a) The revived child's exact reply, quoted:
+
+> CODE-ALPHA-7
+>
+> Confirmed from the first turn of this conversation: the code word you asked
+> me to remember was ALPHA-7.
+
+(b) VERDICT: YES — spike3-a remembered the code word ALPHA-7 across the
+resume; it answered `CODE-ALPHA-7` exactly as the protocol required.
+
+Notes for the record: the id after `Mission:` in the synchronous result is
+the **mission** id, which `resume` rejects ("Async run not found"); the
+resumable target is the run id inside the mission record
+(`86906f5e-924a-4778-ba7b-de294316b748`). Reviving it produced a new
+background run `fafa4813-d587-4eac-8ba1-6f3f6248b33e`, and its completion
+notice included the child's final reply directly.
+```
+
+### Transcript evidence (read, not run)
+
+Main session file
+`~/.pi/agent/sessions/--Users-Ashish-SynologyDrive-Projects-Pi-teamflow-pi--/2026-11-06T20-43-09-228Z_01a1b299-d82b-70c6-8aed-763268f65f51.jsonl`
+and its child run `86906f5e-…/run-0/session.jsonl`:
+
+1. Blocking spawn result, verbatim (abridged):
+   `Run fan-out: 1/64 used, 63 remaining` → `FIRST-TURN\n\nI've stored the
+   code word (ALPHA-7) for the rest of this conversation. …` → `Mission:
+   c96aed16-f8a3-40cb-8854-e84da1870e38 (completed)`.
+2. `resume` with the mission id: `Async run not found for
+   'c96aed16-f8a3-40cb-8854-e84da1870e38'.` The model then read the mission
+   file `~/.pi/agent/missions/projects/9dfda7a7…/c96aed16-….json` and took
+   `runs[0].runId = 86906f5e-…`.
+3. `resume` with the run id — detached receipt, verbatim (abridged):
+   `Revived foreground subagent from 86906f5e-…. Revived run:
+   fafa4813-d587-4eac-8ba1-6f3f6248b33e. Agent: spike3-a. Session:
+   …/86906f5e-…/run-0/session.jsonl. Async dir: /var/folders/…`
+4. The main model ended its turn. A `custom_message` entry with
+   `customType: "subagent-notify"` then arrived, verbatim:
+
+   ```
+   Background task completed: **spike3-a**
+
+   spike3-a:
+
+
+   CODE-ALPHA-7
+
+   Confirmed from the first turn of this conversation: the code word you
+   asked me to remember was ALPHA-7.
+
+   Retention-managed async directory: /var/folders/…/async-subagent-runs/fafa4813-…
+
+   Session file: …/86906f5e-…/run-0/session.jsonl
+
+   Parent action: Read the saved results above and resume the
+   already-authorized parent task, or report completion. If approval is
+   required, explicitly ask the user. Do not silently yield, rerun
+   completed work, or infer new authorization.
+   ```
+
+   This notice started a new assistant turn inside the **same** headless
+   `pi -p` process, which produced the final report above.
+5. Original run's canonical session file
+   (`86906f5e-…/run-0/session.jsonl`) contains **both** turns: the first
+   task/reply and the revived turn. The revived child's task text begins:
+   `You are reviving a previous subagent conversation.\n\nOriginal run:
+   86906f5e-…\nOriginal agent: spike3-a\nOriginal session file: …`
+6. Revived run's meta
+   (`subagent-artifacts/fafa4813-…_spike3-a_meta.json`):
+   `parentSessionId` = the main session id, `agent: spike3-a`,
+   `model: vllm/nvidia/Qwen3.8-27B-NVFP4`, `exitCode: 0`.
+
+### Observed
+
+- **Done check passes: the revived child remembered the first task**
+  (`CODE-ALPHA-7`, "Confirmed from the first turn of this conversation").
+- Resume mechanics confirmed as documented: a **new child** seeded from the
+  stored session; the revived turn is **appended to the same canonical
+  session file**, so context accumulates across repeated resumes — the
+  manager-resuming-impl-lead loop the plan risks should carry context.
+- The whole headless sequence works in one `pi -p` process: blocking spawn →
+  detached resume receipt → turn ends → `subagent-notify` completion notice
+  (with the child's final reply inline) starts the next turn; Pi's
+  headless `agent_end` auto-drain kept the process alive until it was
+  processed (`PS/docs/configuration.md:407`). The teamflow pattern "end
+  your turn, continue on the completion notice; never poll" holds headless.
+- **Gotcha for Phase 4 prompts:** the id printed as `Mission:` in a
+  blocking spawn result is the **mission** id; `resume` needs the **run** id,
+  which lives in `~/.pi/agent/missions/projects/<hash>/<mission-id>.json`
+  (`runs[].runId`) or in the run receipt/notice.
+- Foreground (`async:false`) children are resumable (receipt says "Revived
+  foreground subagent").
+- Model behaviour, not Pi: spike3-a's first reply added extra text after
+  `FIRST-TURN`; the revived reply added the "Confirmed …" sentence after
+  `CODE-ALPHA-7`. The protocol markers came through exactly.
+
+**Status: DONE** (run 2026-11-06T20:43Z–20:46Z)
