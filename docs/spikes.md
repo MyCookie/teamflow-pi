@@ -675,3 +675,91 @@ the selected skill.
 durable mechanism (agents.md:648).
 
 **Status: DONE** (run 2026-11-06T22:22Z–22:24Z)
+
+## Spike 7 — manager startup via `pi --teamflow` (D3)
+
+**Question.** Can the manager be started with a dedicated CLI flag that an
+extension registers, with the manager system prompt injected in
+`before_agent_start`? (Fallback if the flag route is not possible:
+`--append-system-prompt`.)
+
+**Done check.** The session reports that it is the manager.
+
+### Setup
+
+Extension installed at user scope
+`~/.pi/agent/extensions/spike7-manager.ts` (deleted after the run):
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+export default function (pi: ExtensionAPI) {
+  pi.registerFlag("teamflow", {
+    description: "Start as the teamflow manager",
+    type: "boolean",
+    default: false,
+  });
+  pi.on("before_agent_start", (event) => {
+    if (pi.getFlag("teamflow")) {
+      event.systemPromptOptions.sections["teamflow_manager"] =
+        "You are the teamflow manager: the single session that spawns the " +
+        "three leads (research-lead, impl-lead, review-lead), routes goals, " +
+        "runs every handoff, and counts each PR's review rounds. You never " +
+        "implement, research, or review code yourself.";
+    }
+  });
+}
+```
+
+Mechanism facts read (Pi 1.5.0 docs):
+
+- `pi.registerFlag(name, { description, type: "boolean", default })` and
+  `pi.getFlag(name)` after load (in the factory `getFlag` returns the
+default) — `PD/docs/extensions.md:1862`.
+- `before_agent_start` hands a mutable `event.systemPromptOptions` with
+  `sections` (custom XML-wrapped sections keyed by tag name) and
+  `appendSystemPrompt` — `PD/docs/extensions.md:615–659`. Chose `sections`
+  over `appendSystemPrompt` because the docs prefer changing `sections` /
+  `selectedTools` / `promptGuidelines` (Pi diffs only the changed section,
+  keeping the cached prefix) over replacing the whole prompt.
+- `appendSystemPrompt` is a `string`, not an array
+  (`PD/dist/core/system-prompt.d.ts:43`) — noted in case the real
+  extension appends instead.
+- `pi --help` lists extension-registered flags
+  (`PD/docs/cli.md:248`).
+
+### What was run (2026-11-06T23:08Z)
+
+Positive — `pi --teamflow -p "State in one line what role you are in this
+session. If you are not a teamflow manager, say exactly: NOT-MANAGER. …"`:
+
+> I am the teamflow manager: the single session that spawns the three
+> leads, routes goals, runs every handoff, and counts each PR's review
+> rounds — never implementing, researching, or reviewing code myself.
+
+Negative control (same command **without** `--teamflow`):
+
+> NOT-MANAGER.
+
+### Transcript evidence
+
+- The positive session file
+  (`2026-11-06T23-08-33-…_01a1b31e-….jsonl`) contains the section
+  rendered into the system prompt:
+  `"teamflow_manager":"<teamflow_manager>\nYou are the teamflow manager: …`.  The model's reply quotes it ("and it says 'You are the
+teamflow manager: the single session that spawns the three leads…'").
+- The negative session file
+  (`2026-11-06T23-08-56-…_01a1b31f-….jsonl`) contains **zero** occurrences
+  of `teamflow_manager` — the flag gate works both ways.
+
+### Observed
+
+- **Done check passes:** with `--teamflow` the session reports the manager
+  role verbatim from the injected section; without it, `NOT-MANAGER`.
+- `pi --help` showed `--teamflow  Start as the teamflow manager` from the
+  user-scope extension — flag registration via user-scope discovery works.
+- The section approach (vs `appendSystemPrompt` string or full-prompt
+  replace) is the D3 mechanism: flag-gated, diffable, cache-friendly.
+- The real teamflow extension can combine this with the D4 `spawnHook`
+bash override in the same user-scope extension file.
+
+**Status: DONE** (run 2026-11-06T23:08Z)
