@@ -11,8 +11,10 @@ records or on GitHub.
 
 ## Status
 
-**Not started.** This repository holds only the planning docs. Nothing has
-been built or run on Pi.
+**Phase 0 done (2026-11-06).** All eight spikes ran on Pi 1.5.0 /
+pi-subagents 0.86.0 and are recorded in
+[docs/spikes.md](docs/spikes.md). Phase 1 (describe teamflow) is next;
+nothing has been built yet.
 
 **Who builds it.** Pi itself builds the extension
 (Phase 3), working from [AGENTS.md](AGENTS.md) and

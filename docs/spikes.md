@@ -623,8 +623,8 @@ skill and quotes it.
 - Skill installed at the user-scope discovery location
   `~/.pi/agent/skills/workflow/SKILL.md` — a read-only copy of the real
   teamflow skill (reference checkout at `423109c`, 584 lines, frontmatter
-  `name: workflow`). Deleted after the run. (This mirrors D6: the
-teamflow package installs skills into a Pi-discoverable directory.)
+  `name: workflow`). Deleted after the run. (This mirrors the Phase 2 packaging: the
+teamflow package installs its skills into a Pi-discoverable directory.)
 - Throwaway agent `~/.pi/agent/agents/spike6/spike6-a.md` (deleted after):
   `tools: read, bash`, `skills: workflow`.
 
@@ -763,3 +763,86 @@ teamflow manager: the single session that spawns the three leads…'").
 bash override in the same user-scope extension file.
 
 **Status: DONE** (run 2026-11-06T23:08Z)
+
+## Spike 8 — Ponytail
+
+**Question.** Can a child agent run with the ponytail skill and acknowledge
+it? (D6: ponytail is installed separately, not part of the teamflow
+package.)
+
+**Done check.** The reply acknowledges ponytail mode.
+
+### Setup
+
+- Ponytail already installed at user scope before Phase 0:
+  `pi install git:github.com/DietrichGebert/ponytail` (user
+  `settings.json` `packages` lists `git:github.com/DietrichGebert/ponytail`).
+The package bundles **both** a skill
+  (`skills/ponytail/SKILL.md`, `name: ponytail`) and a `pi-extension`
+  whose `before_agent_start` injects `sections.ponytail` ("PONYTAIL MODE
+ACTIVE — level: full …") — the same section mechanism as spike 7
+(`…/ponytail/pi-extension/index.js:242`).
+- Throwaway agent `~/.pi/agent/agents/spike8/spike8-a.md` (deleted after):
+  `tools: read, bash`, `skills: ponytail`.
+
+### What was run (2026-11-06T23:14Z)
+
+Headless main; child (run `eed9a112-…`, exit 0, meta
+`skills: ["ponytail"]`) asked in one sentence what mode it is running in,
+based on its configured skills.
+
+Child's reply (verbatim):
+
+> I'm running in **ponytail mode** (lazy senior dev mode, "full" level by
+> default) — the smallest change that fully solves the task, with a reply a
+> busy human understands in one read.
+>
+> I skipped anything else — no code was touched for this question — and
+> there's no risk to know beyond ponytail being active session-wide until
+> told to stop.
+
+### The plan's exact done check (2nd run, 2026-11-06T23:21Z)
+
+The plan names `skills: ponytail-audit` with a verbatim quote as the check.
+Second throwaway agent `spike8-b` (`tools: read, bash`,
+`skills: ponytail-audit`); child (run `be88ddad-…`, exit 0, meta
+`skills: ["ponytail-audit"]`) replied:
+
+> Loaded the ponytail-audit skill from
+> `/Users/Ashish/.pi/agent/git/github.com/DietrichGebert/ponytail/skills/ponytail-audit/SKILL.md`.
+>
+> One line from its body, verbatim:
+>
+> > One-shot report, changes no code.
+
+Verified: `One-shot report, changes no code.` is line 103 of that
+`SKILL.md` — the final line of the body, exactly as the child stated.
+
+### Transcript evidence
+
+- The child's prompt contains the `<available_skills>` catalog entry for
+  `ponytail` (name + description), and the child's first tool call was
+  `read` of
+  `/Users/Ashish/.pi/agent/git/github.com/DietrichGebert/ponytail/skills/ponytail/SKILL.md`;
+it answered from that file.
+- The child's prompt contains **zero** `PONYTAIL MODE ACTIVE` occurrences:
+  the package's section-injecting extension is ambient in the **main**
+  session only — foreground children never load ambient extensions
+  (spike 5, `agents.md:574`).
+- The reply's closing "I skipped … / no risk" line is the skill's own
+  required convention — evidence the skill was read and followed, not just
+  name-dropped.
+
+### Observed
+
+- **Done check passes** (both runs): the child loaded its `skills:` skill
+  from the catalog and acknowledged the mode accurately (including the
+default level and stop-switch from the skill body); the plan-exact run
+  quoted line 103 of `ponytail-audit/SKILL.md` verbatim.
+- For teamflow-pi: the manager (the main session) receives ponytail's
+  section ambiently from the installed package; any child role that should
+  run ponytail gets it via the `skills:` frontmatter (catalog + read).
+  A child would only need the section itself if the frontmatter also
+  listed the package's extension — not required here.
+
+**Status: DONE** (runs 2026-11-06T23:14Z and 23:21Z)

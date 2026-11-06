@@ -35,7 +35,14 @@ Decided by the human on 2026-11-05. A change to one is the human's call.
 Each phase ends on a check you can run. Do them in order; a phase whose
 check fails stops the plan.
 
-### Phase 0: spikes (answer the unknowns first)
+### Phase 0: spikes (answer the unknowns first) — DONE 2026-11-06
+
+All eight spikes ran and are recorded in [spikes.md](spikes.md) with
+commands, versions, and observed behaviour (Pi 1.5.0, pi-subagents 0.86.0,
+model `vllm/nvidia/Qwen3.8-27B-NVFP4`, thinking off). Spike 5 passed on
+its second attempt after a real failure (extension install scope); every
+other done check passed on the first attempt. Findings that shape later
+phases are noted in each record.
 
 Small throwaway Pi sessions, one per question, each recorded in
 `docs/spikes.md` with the command, the Pi and pi-subagents versions, the
