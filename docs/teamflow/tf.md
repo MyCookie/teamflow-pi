@@ -95,10 +95,11 @@ which must not choose the rules its own review and merge run under
 (teamflow test: `test_config_comes_from_the_main_worktree_not_the_pr_under_review`,
 `tests/test_tf.py:263`).
 
-Rules (from `teamflow-config`, which `tf` depends on):
+Rules (from `teamflow-config`, which `tf` depends on — full contract in
+[teamflow-config.md](teamflow-config.md)):
 
 - The main worktree is the first entry of `git worktree list --porcelain`.
-  If it is a **bare** repository: exit 2, `the main worktree (<root>) is a
+  If it is a **bare** repository: exit 2, `the main checkout (<root>) is a
   bare repository; teamflow needs a main worktree on the base branch to
   read its config from`. A bare dir's stray config file is never read
   (teamflow test: `test_bare_main_checkout_is_named_as_such`,
@@ -116,7 +117,8 @@ Rules (from `teamflow-config`, which `tf` depends on):
 - Keys `tf` itself uses: `forge` (`local`|`github`, default `local`),
   `base` (default `main`), `remote` (default `origin`, github mode only).
   The other keys (`tdd`, `teamflow_auto_approve`, `loop.*`) are read by
-  agents, not by `tf`; they are documented in `teamflow-config.md`.
+  agents, not by `tf`; they are documented in
+  [teamflow-config.md](teamflow-config.md).
 
 `tf mode` prints `local` or `github` and exits 0 after the config and
 github-prerequisite checks (a repository that adopted `github` but is
