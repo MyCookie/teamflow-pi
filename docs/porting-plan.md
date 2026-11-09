@@ -69,7 +69,25 @@ check fails, note whether Pi refused the action or the model did not try it.
 8. **ponytail in a child** (D6). With ponytail installed, a child with
    `skills: ponytail-audit` reads it. Done: the child quotes a line from it.
 
-### Phase 1: describe teamflow (D1)
+### Phase 1: describe teamflow (D1) — DONE 2026-11-09
+
+All five docs landed, each pinned to teamflow @ `423109c` and checked
+section by section against it:
+
+- [tf.md](teamflow/tf.md) — verified by scratch runs and teamflow's
+test suite (56 tests, `tests/test_tf.py`).
+- [teamflow-config.md](teamflow/teamflow-config.md) — verified by scratch
+runs plus `tests/test_tf.py`.
+- [tf-setup.md](teamflow/tf-setup.md) — verified by scratch runs plus
+`tests/test_setup.py` (15 tests).
+- [workflow-rules.md](teamflow/workflow-rules.md) — transcription of
+`skills/workflow/SKILL.md`; every swap listed in its Appendix A.
+- [agents.md](teamflow/agents.md) — the 11 role files; Tier-3 stripped,
+every swap listed in its Appendix A.
+
+Done check ran: every section names its teamflow source (file and
+commit), and every `tf` command and exit code in teamflow's `bin/tf`
+usage text appears in [tf.md](teamflow/tf.md).
 
 Docs in `docs/teamflow/` that a builder can work from without opening the
 teamflow repository, each checked against teamflow at a named commit:
