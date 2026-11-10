@@ -985,3 +985,42 @@ Negative control — same command without `--teamflow`:
   prompt is constant per session, so the change happens once.
 
 **Status: DONE** (runs 2026-11-10T04:40Z–04:41Z)
+
+### Model-robustness probe of the Part 2 check (2026-11-10T04:51Z–04:52Z)
+
+Question: does the name check depend on which model answers? Probe with a
+second model — local `llama/gemma-4-12b-it` (Gemma 4 12B GGUF Q4_0 on a
+llama.cpp OpenAI-compatible endpoint at `localhost:9931`, ctx 131072;
+wired as a `llama` provider in `~/.pi/agent/models.json`, same pattern as
+the existing `vllm` entry; the alias ID is used because the full ID
+contains `:`, which collides with pi's `provider/id:thinking` syntax).
+DeepSeek itself was not run: the `huggingface` provider is paywalled
+(HTTP 402) and the `openrouter` key is stale (401 "User not found").
+
+- Negative control, `pi -e ./extensions/teamflow.ts --model
+  llama/gemma-4-12b-it -p "What is your name?"` →
+  "I am a coding assistant running inside pi, a coding agent harness.
+  I'm here to help you inspect files, run commands, and modify code."
+  Not `teamflow-manager`. The session transcript
+  (`2026-11-10T04-51-44-…jsonl`) has **zero** occurrences of the phrase in
+  anything sent to the model.
+- Positive control, same with `--teamflow` → "I am teamflow-manager."
+  The session transcript (`2026-11-10T04-52-41-…jsonl`) contains the
+  phrase once, inside the model's own thinking, which quotes the system
+  prompt: "The system prompt says 'Your name is teamflow-manager.'"
+
+Observed:
+
+- The check's behaviour varies with the model's identity style (Qwen
+  claims its brand; Gemma-4-12B claims no brand and answers from the
+  system prompt), but the **mechanism is model-independent**: flag off,
+  the handler returns `undefined`, and the transcript shows the prompt
+  is unchanged.
+- The model-independent arbiter is the transcript (system prompt
+  content), the same evidence method spike 7 used — not the model's
+  answer.
+- Latent risk, not triggered here: the check runs with cwd = the
+  teamflow-pi repo, where the phrase literally exists in `manager.md`,
+  the lib test, and this file's quoted lines. A model that explores the
+  repo before answering could find it and answer with it — a false
+  control failure. The transcript check would still grade it correctly.
