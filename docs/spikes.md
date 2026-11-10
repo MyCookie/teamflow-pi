@@ -1145,3 +1145,43 @@ does not prefix `PATH` for every session on this machine (it would
 shadow `tf` in the source teamflow repo); `pi install ./` re-adds it.
 
 **Status: DONE** (runs 2026-11-10T17:2xZ–17:4xZ)
+
+## Phase 4, Task 1 — the workflow skill (2026-11-10T13:01Z)
+
+`skills/workflow/SKILL.md` (698 lines), written new from the Phase 1
+transcription `docs/teamflow/workflow-rules.md` (D1: not a file copy) —
+rules §1–17 carry over as written, harness wording swapped, the swaps
+listed in the skill's own §18 *Deltas*. Frontmatter: `name: workflow`,
+`description: >` block saying when to load it.
+
+Verification (all run by me):
+
+- **Rule fidelity:** whitespace-normalized word-level diff of the
+  skill's §1–17 against the transcription's §1–17. Every hunk is one of:
+  an intended delta (entry point `pi --teamflow`, wait mechanism =
+  pi-subagents foreground/async, tool names `edit`/`write`/`bash` +
+  allowlists, `.pi/teamflow.json`, `package.json` as the version file,
+  shipped paths, `pi update <source>`, `pi-subagents/*` cleanup, the
+  port's `tests/test_tf_github.py` test names) or a dropped
+  teamflow-internal reference (`#258 Dx`, `#259`, `#226`, the archived
+  code-reviewer note, pointers to teamflow docs that do not exist in the
+  port). No pipeline rule changed.
+- **Facts behind the swapped wording** (read this session, not assumed):
+  `pi --teamflow` (Spike 7 above; `pi --help`: "--teamflow Start as the
+  teamflow manager"); pi-subagents worktrees auto-remove with
+  `pi-subagents/` branch names (Spike 4); `tf setup` installs
+  `templates/branch-ruleset.json` in `github` mode (read in `bin/tf`
+  `cmd_setup` + `tests/test_tf_github.py`); port test names read in
+  `tests/test_tf_github.py`.
+- **Structure:** `node` check — frontmatter has `name: workflow` and a
+  folded `description`; sections 1–18 present in order.
+- **Pi loads it:** Pi 1.5.0, from a clean dir,
+  `pi --skill skills/workflow --no-session -p "Reply with the single
+  word: ok"` → `ok` (no frontmatter/load errors);
+  `pi --skill skills/workflow --no-session -p "Is a skill with the name
+  workflow available in this session? …"` → `yes` (registered in the
+  session's skill list).
+
+Model: local vllm Qwen (same as the Phase 3 gates).
+
+**Status: DONE**
