@@ -11,13 +11,15 @@
  */
 
 import { createBashTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { pathWithBin } from "./teamflow-lib.ts";
+import { appendManagerPrompt, pathWithBin } from "./teamflow-lib.ts";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const binDir = join(packageRoot, "bin");
+const managerPath = join(packageRoot, "manager.md");
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
@@ -35,5 +37,22 @@ export default function (pi: ExtensionAPI) {
 		execute: async (id, params, signal, onUpdate, _ctx) => {
 			return bashTool.execute(id, params, signal, onUpdate);
 		},
+	});
+
+	// Part 2 (D3): --teamflow makes the main session the manager.
+	// The flag is read in the handler, not the factory, where getFlag
+	// still returns the default (PD/docs/extensions.md:1862-1880).
+	pi.registerFlag("teamflow", {
+		description: "Start as the teamflow manager",
+		type: "boolean",
+		default: false,
+	});
+
+	pi.on("before_agent_start", (event) => {
+		if (!pi.getFlag("teamflow")) return;
+		const manager = readFileSync(managerPath, "utf8");
+		return {
+			systemPrompt: appendManagerPrompt(event.systemPrompt, manager),
+		};
 	});
 }

@@ -12,3 +12,13 @@
 export function pathWithBin(path: string | undefined, bin: string): string {
 	return path ? `${bin}:${path}` : bin;
 }
+
+/**
+ * Part 2 (D3): the system prompt, two newlines, then the manager text.
+ */
+export function appendManagerPrompt(
+	systemPrompt: string,
+	manager: string,
+): string {
+	return `${systemPrompt}\n\n${manager}`;
+}

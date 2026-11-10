@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { pathWithBin } from "./teamflow-lib.ts";
+import { appendManagerPrompt, pathWithBin } from "./teamflow-lib.ts";
 
 test("pathWithBin prepends bin to an existing PATH", () => {
 	assert.equal(
@@ -22,4 +22,15 @@ test("pathWithBin returns just bin when the old PATH is empty", () => {
 
 test("pathWithBin returns just bin when the old PATH is undefined", () => {
 	assert.equal(pathWithBin(undefined, "/pkg/bin"), "/pkg/bin");
+});
+
+// Part 2 (D3)
+
+test("appendManagerPrompt: result starts with the original and ends with the manager text", () => {
+	const original = "You are a coding assistant.";
+	const manager = "Your name is teamflow-manager.";
+	const out = appendManagerPrompt(original, manager);
+	assert.ok(out.startsWith(original));
+	assert.ok(out.endsWith(manager));
+	assert.equal(out, original + "\n\n" + manager);
 });

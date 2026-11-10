@@ -919,3 +919,69 @@ local
   by the detached background runner (user scope or the settings package).
 
 **Status: DONE** (runs 2026-11-10T03:54Z–04:05Z)
+
+## Phase 3, Part 2 — `--teamflow` flag and the manager prompt (D3)
+
+Build record for [extension-spec.md](extension-spec.md) Part 2. Versions:
+Pi 1.5.0, pi-subagents 0.87.0, model `nvidia/Qwen3.8-27B-NVFP4` (read from
+the session files), Node v26.13.0.
+
+### Files
+
+- `manager.md` — the Phase 3 placeholder line (spec: "a placeholder line
+  is enough for Phase 3; Phase 4 writes it"):
+  `Your name is teamflow-manager.`
+- `extensions/teamflow-lib.ts` — `appendManagerPrompt(systemPrompt,
+  manager)`: the system prompt, two newlines, then the manager text.
+- `extensions/teamflow-lib.test.ts` — 4th test: the result starts with the
+  original, ends with the manager text, and equals
+  `original + "\n\n" + manager`.
+- `extensions/teamflow.ts` — `pi.registerFlag("teamflow", {
+  description: "Start as the teamflow manager", type: "boolean",
+  default: false })`; in `before_agent_start`, if
+  `pi.getFlag("teamflow")` is on, returns
+  `{ systemPrompt: appendManagerPrompt(event.systemPrompt,
+  readFileSync(manager.md)) }`. Shape from
+  `PD/examples/extensions/preset.ts:388-402` (flag +
+  `systemPrompt: event.systemPrompt + "\n\n" + ...`), per the spec.
+  `manager.md` is read in the handler when the flag is on, so without the
+  flag the extension changes nothing even if the file were missing.
+
+### Test-first
+
+New test run before the lib function existed: `fail 1` (import error).
+After: `tests 4, pass 4, fail 0`.
+
+### The spec's check (runs 2026-11-10T04:40Z)
+
+```
+$ pi -e ./extensions/teamflow.ts --teamflow -p "What is your name?"
+```
+
+> My name is teamflow-manager.
+
+Negative control — same command without `--teamflow`:
+
+> I'm Qwen, an AI assistant developed by Alibaba Group.
+
+**Pass** (with: answers with it; without: does not).
+
+### Regression and observations (2026-11-10T04:41Z)
+
+- Part 1 still works in the same extension file:
+  `pi -e ./extensions/teamflow.ts -p "Run: command -v tf"` prints
+  `/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi/bin/tf`.
+- `pi -e ./extensions/teamflow.ts --help` lists
+  `--teamflow  Start as the teamflow manager`.
+- Cited lines re-verified: `getFlag` returns the default in the factory,
+  so the flag is read inside the handler
+  (`PD/docs/extensions.md:1862-1880`); `before_agent_start`'s
+  `event.systemPrompt` is the chained prompt for this handler
+  (`PD/docs/extensions.md:615-657`).
+- Note for Phase 4/5: returning `systemPrompt` replaces the whole prompt
+  for the run (docs: a cache miss when it changes); spike 7 recorded the
+  `systemPromptOptions.sections` alternative as cache-friendly. The spec
+  chose the replacement shape (matching its cited example); the manager
+  prompt is constant per session, so the change happens once.
+
+**Status: DONE** (runs 2026-11-10T04:40Z–04:41Z)
