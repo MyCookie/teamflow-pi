@@ -785,7 +785,18 @@ for `tf` the known deltas are:
 - **D4:** agents find `tf` on PATH via a Pi `spawnHook` extension, not a
   Claude Code session hook.
 - `tf setup`'s github-mode label/ruleset work is out of scope until
-  after the Phase 5 local-mode run ("Later" in the plan).
+  after the Phase 5 local-mode run ("Later" in the plan). In place of
+  teamflow's label / auto-merge / ruleset lines, `tf setup --forge
+  github` prints one deferred line:
+  `later: github label and ruleset setup (with auto-merge settings) is
+  not implemented in teamflow-pi yet; until then github mode runs
+  unenforced, with tf checking the gate and the verdict itself`.
+- `tf setup` appends no worktrees entry to `.gitignore` — teamflow's
+  `.claude/worktrees/` names teamflow's in-repo worktree location, and Pi
+  has none (pi-subagents' worktrees live outside the repository,
+  porting-plan spike 4; the impl-lead's are `../<branch>` siblings).
+  Decided by the human 2026-11-09; `tf setup` appends only
+  `.manager-state.json` and `.env`.
 
 Everything else in this contract is intended to be preserved.
 

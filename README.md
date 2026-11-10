@@ -11,15 +11,15 @@ records or on GitHub.
 
 ## Status
 
-**Phase 1 done (2026-11-09).** The five teamflow description docs are in
-[docs/teamflow/](docs/teamflow/): the `tf` contract
-([tf.md](docs/teamflow/tf.md)), `teamflow-config`
-([teamflow-config.md](docs/teamflow/teamflow-config.md)), `tf setup`
-([tf-setup.md](docs/teamflow/tf-setup.md)), the workflow rules
-([workflow-rules.md](docs/teamflow/workflow-rules.md)) and the agents
-([agents.md](docs/teamflow/agents.md)) — each pinned to teamflow @
-`423109c` and checked section by section against it. Nothing has been
-built yet; Phase 2 (package skeleton, `tf`, the gate) is next.
+**Phase 2 done (2026-11-09).** The package skeleton is in place:
+[package.json](package.json), the four forge templates in
+[templates/](templates/) (verbatim from teamflow @ `423109c`),
+[`tf`](bin/tf) and [`teamflow-config`](bin/teamflow-config) built
+against the Phase 1 contracts, and the repo's own
+[scripts/gate.sh](scripts/gate.sh) running the unit tests (D7).
+138 unit tests in [tests/](tests/) cover both, test-first, with
+[fake_gh](tests/fake_gh.py) standing in for `gh` in GitHub-mode tests.
+Phase 3 (the extension) is next.
 
 Phase 0's eight spikes ran on Pi 1.5.0 / pi-subagents 0.86.0 and are
 recorded in [docs/spikes.md](docs/spikes.md).

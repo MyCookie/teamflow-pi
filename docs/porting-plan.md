@@ -105,7 +105,7 @@ teamflow repository, each checked against teamflow at a named commit:
 Done: every section names its teamflow source (file and commit), and every
 `tf` exit code and command in teamflow's `bin/tf` usage text appears.
 
-### Phase 2: package skeleton, `tf` and the gate
+### Phase 2: package skeleton, `tf` and the gate — DONE 2026-11-09
 
 - `package.json` with `name`, `version`, a `pi` key for `skills`,
   `extensions` and `subagents.agents`, and the `pi-package` keyword.

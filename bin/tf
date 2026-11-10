@@ -1,0 +1,918 @@
+#!/usr/bin/env python3
+"""teamflow's one interface to Issues and PRs, local or on GitHub.
+
+    tf mode
+    tf setup [--forge local|github] [--remote R] [--apply]   # dry run without --apply; R defaults to the configured remote
+    tf issue create --title T (--body B | --body-file F) [--label L ...]   # F may be - for stdin
+    tf issue list [--label L ...]                # open Issues carrying any label
+    tf issue view N
+    tf issue comment N (--body B | --body-file F)   # F may be - for stdin
+    tf issue edit N [--add-label L ...] [--remove-label L ...]   # at least one flag
+    # a label is non-empty, printable, with no comma, on create and edit (else exit 2)
+    tf issue close N
+    tf pr create --title T (--body B | --body-file F) [--base B]   # F may be - for stdin
+    tf pr list
+    tf pr view N
+    tf pr checkout N                             # review team worktree only
+    tf pr claim N | tf pr release N
+    tf pr gate N
+    tf pr diff N [PATH ...]                      # base...head, after tf pr checkout
+    tf pr review N --verdict APPROVE|REQUEST_CHANGES --sha SHA (--body B | --body-file F)   # F may be - for stdin
+    tf pr merge N
+
+The mode comes from `forge` in .pi/teamflow.json (see teamflow-config):
+
+- local (default): Issues and PRs are records under <git common dir>/teamflow,
+  shared by every worktree and never committed. The reviewer runs the gate,
+  and `tf pr merge` merges into the base branch locally. Nothing is pushed.
+- github: Issues and PRs live on GitHub. A `teamflow/code-review` commit status
+  on the reviewed head is the claim (pending) and the verdict (success or
+  failure), replacing review labels; CI's checks replace the reviewer's own
+  gate run. Where a ruleset requires both `gate` and `teamflow/code-review`,
+  GitHub enforces them and merges once they pass. Otherwise (no ruleset, one
+  that lacks either, or one that cannot be read) tf checks the CI `gate` check
+  and the verdict itself before merging, which is a process control only.
+  `tf pr review --verdict APPROVE` arms auto-merge (`gh pr merge --auto`,
+  pinned to the reviewed head) when the PR targets the configured base and
+  `repos/<slug>/rules/branches/<base>` lists a required status check for both
+  `gate` and `teamflow/code-review`; GitHub then merges once they pass, or at
+  once if the PR is already clean. It prints what it did and arms nothing for
+  REQUEST_CHANGES, a stacked PR, or a repository without that ruleset (there,
+  and in local mode, the reviewer runs `tf pr merge`). If the verdict is
+  recorded but arming fails, including an unreadable ruleset, review exits 4
+  and the verdict stays; `tf pr merge N` is then the fallback.
+  If the repository adopted github but gh is missing, unauthenticated, or the
+  remote is not GitHub, every command stops (exit 2): never a silent fallback.
+
+On GitHub, `tf pr gate` and an unenforced `tf pr merge` (no ruleset requiring
+both contexts) wait for pending CI checks, polling every TF_GATE_POLL seconds
+(default 15) for up to TF_GATE_WAIT seconds (default 480), then report the
+result. An unenforced merge judges the `gate` check alone, whatever else is
+required, and merges directly; if another required check is red or pending,
+GitHub is expected to refuse that merge (exit 1; by reading only, not
+observed). With a ruleset requiring both, `tf pr merge` does not wait for
+pending checks: it retries only a failed read of
+the required checks, then enables auto-merge. A failed poll or an empty check
+list is retried the same way. If a check is still pending at the deadline, tf also
+prints the PR's head SHA (read after the wait) and, per pending check, what gh reports (state,
+workflow, event, link, startedAt, completedAt, description), to tell a slow run from a stale
+rollup. `tf pr merge` has one TF_GATE_WAIT deadline for
+all of it, not one per step. tf puts no time limit on the gh calls, so the
+real wait is that deadline plus the last poll and the calls after it.
+An unenforced merge reads the verdict again after the wait and refuses (exit 3)
+unless it is still an APPROVE for the head. TF_GATE_WAIT must be a finite
+number >= 0 and TF_GATE_POLL a finite number > 0, else exit 2 (also for
+`tf pr merge`).
+
+Exit codes: 0 ok, 1 error, 2 setup or usage problem, 3 refused because of PR
+state (claimed, moved head, no approval, or after the wait of tf pr gate or
+tf pr merge, CI still running or unreadable), 4 the verdict of tf pr review is
+recorded but auto-merge was not armed. Exit 3 is a STOP, not a retry signal.
+"""
+
+import argparse
+import datetime
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+TEMPLATE = ".github/pull_request_template.md"
+TEMPLATES = HERE.parent / "templates"
+STATUS = "teamflow/code-review"
+GATE = "gate"
+CONFIG_FILE = ".pi/teamflow.json"
+
+
+class Refused(Exception):
+    """The command is valid but the PR or repository state forbids it (exit 3)."""
+
+
+class SetupError(Exception):
+    """The repository or tooling is not set up for this command (exit 2)."""
+
+
+class ArmFailed(Exception):
+    """The verdict is recorded but auto-merge could not be armed (exit 4)."""
+
+
+def run(*cmd, cwd=None, check=True, capture=True):
+    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=capture)
+    if check and result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip() if capture else ""
+        raise RuntimeError(f"{' '.join(cmd)} failed ({result.returncode}): {detail}")
+    return result.stdout.strip() if capture else ""
+
+
+def git(*args, cwd=None, check=True):
+    return run("git", *args, cwd=cwd, check=check)
+
+
+def config():
+    result = subprocess.run([str(HERE / "teamflow-config")], text=True, capture_output=True)
+    if result.returncode:
+        raise SetupError(result.stderr.strip().removeprefix("teamflow-config: "))
+    return json.loads(result.stdout)
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def read_file(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def worktrees():
+    """[(path, branch ref or None)] with the main worktree first."""
+    out, path = [], None
+    for line in git("worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+            out.append([path, None])
+        elif line.startswith("branch ") and out:
+            out[-1][1] = line[len("branch "):]
+    return [tuple(w) for w in out]
+
+
+def check_publishable(base):
+    """The refusals open-pr made: what an implementer must not publish."""
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    if branch == "HEAD":
+        raise Refused("detached HEAD; run this from the feature branch")
+    if branch == base:
+        raise Refused(f"refusing to open a PR from {base}")
+    dirty = git("status", "--porcelain")
+    if dirty:
+        raise Refused("working tree is dirty; commit before publishing:\n" + dirty)
+    return branch
+
+
+def check_body(text):
+    if os.path.isfile(TEMPLATE) and read_file(TEMPLATE).strip() == text.strip():
+        raise Refused(f"the PR body is the unmodified {TEMPLATE}; fill it in first")
+
+
+def copy_env(main_tree):
+    """.env is untracked, so a fresh worktree lacks it. Never invent one."""
+    source = Path(main_tree) / ".env"
+    if source.is_file():
+        shutil.copyfile(source, ".env")
+        print("tf: copied .env from the main worktree (rm -f .env when done)")
+    elif Path(".env.example").is_file():
+        raise SetupError(f".env.example exists but {main_tree} has no .env; stop and report")
+
+
+def closes(body):
+    return sorted({int(n) for n in re.findall(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", body)})
+
+
+# -- local forge -------------------------------------------------------------
+
+
+class Local:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir"))
+        self.root = common / "teamflow"
+        self.items = self.root / "items"
+        self.claims = self.root / "claims"
+        self.items.mkdir(parents=True, exist_ok=True)
+        self.claims.mkdir(parents=True, exist_ok=True)
+
+    # storage: one JSON file per Issue or PR, numbered from one shared sequence
+
+    def _path(self, n):
+        return self.items / f"{n}.json"
+
+    def _new(self, record):
+        n = max((int(p.stem) for p in self.items.glob("*.json")), default=0) + 1
+        while True:
+            try:
+                fd = os.open(self._path(n), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            except FileExistsError:
+                n += 1
+                continue
+            record = {"number": n, "created_at": now(), **record}
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2)
+            return n
+
+    def _load(self, n, kind=None):
+        try:
+            record = json.loads(read_file(self._path(n)))
+        except FileNotFoundError:
+            raise Refused(f"#{n} does not exist") from None
+        if kind and record["kind"] != kind:
+            raise Refused(f"#{n} is {'an Issue' if record['kind'] == 'issue' else 'a PR'}, not {'an Issue' if kind == 'issue' else 'a PR'}")
+        return record
+
+    def _save(self, record):
+        path = self._path(record["number"])
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+        os.replace(tmp, path)
+
+    def _tip(self, pr):
+        return git("rev-parse", "--verify", "--quiet", f"refs/heads/{pr['branch']}^{{commit}}", check=False)
+
+    # issues
+
+    def issue_create(self, title, body, labels):
+        n = self._new({"kind": "issue", "title": title, "body": body,
+                       "labels": labels, "state": "open", "comments": []})
+        print(f"#{n}")
+
+    def issue_list(self, labels):
+        for path in sorted(self.items.glob("*.json"), key=lambda p: int(p.stem)):
+            r = json.loads(read_file(path))
+            if r["kind"] == "issue" and r["state"] == "open" and (not labels or set(labels) & set(r["labels"])):
+                print(f"#{r['number']}\t{r['title']}\t{','.join(r['labels'])}")
+
+    def issue_view(self, n):
+        r = self._load(n, "issue")
+        print(f"#{n} {r['title']}\nstate: {r['state']}\nlabels: {', '.join(r['labels']) or '-'}\n\n{r['body']}")
+        for c in r["comments"]:
+            print(f"\n--- comment {c['at']}\n{c['body']}")
+
+    def issue_comment(self, n, body):
+        r = self._load(n, "issue")
+        r["comments"].append({"at": now(), "body": body})
+        self._save(r)
+        print(f"#{n}: commented")
+
+    def issue_edit(self, n, add, remove):
+        r = self._load(n, "issue")
+        r["labels"] = [l for l in r["labels"] if l not in remove] + [l for l in dict.fromkeys(add) if l not in r["labels"]]
+        self._save(r)
+        print(f"#{n}: labels: {', '.join(r['labels']) or '-'}")
+
+    def issue_close(self, n):
+        r = self._load(n, "issue")
+        r["state"] = "closed"
+        self._save(r)
+        print(f"#{n}: closed")
+
+    # PRs
+
+    def pr_create(self, title, body, base):
+        branch = check_publishable(base)
+        check_body(body)
+        for path in self.items.glob("*.json"):
+            r = json.loads(read_file(path))
+            if r["kind"] == "pr" and r["state"] == "open" and r["branch"] == branch:
+                raise Refused(f"#{r['number']} is already open for {branch}")
+        n = self._new({"kind": "pr", "title": title, "body": body,
+                       "branch": branch, "base": base, "state": "open", "reviews": []})
+        print(f"#{n} ({branch} -> {base})")
+
+    def pr_list(self):
+        for path in sorted(self.items.glob("*.json"), key=lambda p: int(p.stem)):
+            r = json.loads(read_file(path))
+            if r["kind"] == "pr" and r["state"] == "open":
+                print(f"#{r['number']}\t{r['title']}\t{r['branch']} -> {r['base']}")
+
+    def pr_view(self, n):
+        r = self._load(n, "pr")
+        claimed = (self.claims / str(n)).is_dir()
+        tip = self._tip(r)
+        if r["state"] == "merged":
+            files = git("diff", "--name-only", f"{r['merged_sha']}^1", r["merged_sha"])
+        elif tip:
+            files = git("diff", "--name-only", f"{r['base']}...{tip}", check=False)
+        else:
+            files = ""
+        print(f"#{n} {r['title']}\nstate: {r['state']}\nbranch: {r['branch']} -> {r['base']}\n"
+              f"head: {tip or '(branch missing)'}\nclaimed: {'yes' if claimed else 'no'}\n"
+              f"files: {', '.join(files.split()) or '-'}\n\n{r['body']}")
+        for v in r["reviews"]:
+            print(f"\n--- review {v['at']}: {v['verdict']} at {v['sha']}\n{v['body']}")
+
+    def pr_checkout(self, n):
+        r = self._load(n, "pr")
+        main_tree = worktrees()[0][0]
+        if git("rev-parse", "--show-toplevel") == main_tree:
+            raise Refused(f"refusing to run in the main worktree ({main_tree}); reviews run in their own")
+        tip = self._tip(r)
+        if not tip:
+            raise Refused(f"branch {r['branch']} does not exist")
+        git("checkout", "--quiet", "--detach", tip)
+        print(f"tf: detached at {tip[:12]} ({r['branch']})")
+        copy_env(main_tree)
+
+    def pr_diff(self, n, paths):
+        r = self._load(n, "pr")
+        print(git("diff", f"{r['base']}...{self._tip(r)}", "--", *paths))
+
+    def pr_claim(self, n):
+        self._load(n, "pr")
+        try:
+            (self.claims / str(n)).mkdir()
+        except FileExistsError:
+            raise Refused(f"#{n} is already claimed by another reviewer") from None
+        print(f"#{n}: claimed")
+
+    def pr_release(self, n):
+        try:
+            (self.claims / str(n)).rmdir()
+        except FileNotFoundError:
+            pass
+        print(f"#{n}: released")
+
+    def pr_gate(self, n):
+        r = self._load(n, "pr")
+        if git("rev-parse", "HEAD") != self._tip(r):
+            raise Refused(f"this worktree is not at #{n}'s head; run tf pr checkout {n} first")
+        if not os.access("scripts/gate.sh", os.X_OK):
+            raise SetupError("scripts/gate.sh is missing or not executable")
+        if subprocess.run(["./scripts/gate.sh"]).returncode:
+            sys.exit(1)  # gate.sh's own code (2, 3, 127, a signal) must not read as setup or a STOP
+
+    def pr_review(self, n, verdict, sha, body):
+        r = self._load(n, "pr")
+        if self._tip(r) != sha:
+            raise Refused(f"#{n}'s head moved since {sha[:12]}; review the new head")
+        r["reviews"].append({"at": now(), "verdict": verdict, "sha": sha, "body": body})
+        self._save(r)
+        print(f"#{n}: {verdict} recorded at {sha[:12]}")
+
+    def pr_merge(self, n):
+        r = self._load(n, "pr")
+        base = self.cfg["base"]
+        if r["state"] != "open":
+            raise Refused(f"#{n} is {r['state']}")
+        if r["base"] != base:
+            raise Refused(f"#{n} targets {r['base']}, not {base}: merge its dependency first, then retarget")
+        tip = self._tip(r)
+        last = r["reviews"][-1] if r["reviews"] else None
+        if not last or last["verdict"] != "APPROVE" or last["sha"] != tip:
+            raise Refused(f"#{n} has no APPROVE for its current head {tip[:12]}")
+
+        holder = next((path for path, ref in worktrees() if ref == f"refs/heads/{base}"), None)
+        if holder and git("-C", holder, "status", "--porcelain", "--untracked-files=no"):
+            raise Refused(f"the {base} checkout at {holder} has uncommitted changes; ask the human")
+
+        old = git("rev-parse", f"refs/heads/{base}")
+        git("checkout", "--quiet", "--detach", old)
+        subject = f"Merge {r['branch']}: {r['title']}"
+        trailer = "\n".join([*(f"Closes #{i}" for i in closes(r["body"])),
+                             f"Reviewed-by: teamflow:review-lead (round {len(r['reviews'])})"])
+        merged = subprocess.run(["git", "merge", "--no-ff", "--quiet", "-m", subject, "-m", trailer, tip],
+                                text=True, capture_output=True)
+        if merged.returncode:
+            conflicted = git("diff", "--name-only", "--diff-filter=U", check=False)
+            git("merge", "--abort", check=False)
+            if conflicted:
+                raise Refused(f"#{n} conflicts with {base} in {', '.join(conflicted.split())}; the implementer must rebase")
+            raise RuntimeError(f"merging #{n} failed:\n{(merged.stdout + merged.stderr).strip()}")
+        new = git("rev-parse", "HEAD")
+        if holder:
+            git("-C", holder, "merge", "--ff-only", "--quiet", new)
+        else:
+            git("update-ref", f"refs/heads/{base}", new, old)
+
+        r.update(state="merged", merged_sha=new, merged_at=now())
+        self._save(r)
+        for path in self.items.glob("*.json"):
+            other = json.loads(read_file(path))
+            if other["kind"] == "pr" and other["state"] == "open" and other["base"] == r["branch"]:
+                other["base"] = base
+                self._save(other)
+                print(f"#{other['number']}: retargeted to {base}")
+        for i in closes(r["body"]):
+            try:
+                issue = self._load(i, "issue")
+            except Refused:
+                continue
+            issue["state"] = "closed"
+            self._save(issue)
+        print(f"#{n}: merged into {base} at {new[:12]}")
+
+
+# -- GitHub forge ------------------------------------------------------------
+
+
+def gate_timing():
+    """(TF_GATE_WAIT, TF_GATE_POLL) in seconds; anything but finite wait >= 0 and poll > 0 is a setup error."""
+    try:
+        wait, poll = (float(os.environ.get(k, d)) for k, d in (("TF_GATE_WAIT", 480), ("TF_GATE_POLL", 15)))
+    except ValueError:
+        wait = poll = math.nan
+    if not (math.isfinite(wait) and math.isfinite(poll) and wait >= 0 and poll > 0):
+        raise SetupError("TF_GATE_WAIT must be a number of seconds >= 0 and TF_GATE_POLL one > 0")
+    return wait, poll
+
+
+CHECK_FIELDS = "name,bucket,state,workflow,event,link,startedAt,completedAt,description"  # what `gh pr checks --json` accepts, run against gh 2.103.3
+
+
+def pending_names(checks):
+    return [c["name"] for c in checks if c["bucket"] == "pending"]
+
+
+class GitHub:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.remote = cfg["remote"]
+        url = git("remote", "get-url", self.remote, check=False)
+        match = re.search(r"github\.com[:/]([^\s/]+)/([^\s/]+?)(?:\.git)?/?$", url or "")
+        if not match:
+            raise SetupError(f"forge is github but remote '{self.remote}' ({url or 'missing'}) is not a GitHub repository")
+        if not shutil.which("gh"):
+            raise SetupError("forge is github but gh is not installed")
+        if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
+            raise SetupError("forge is github but gh is not authenticated (gh auth login)")
+        self.slug = f"{match.group(1)}/{match.group(2)}"
+
+    def gh(self, *args):
+        return run("gh", *args, "-R", self.slug)
+
+    def api(self, *args):
+        return run("gh", "api", *args)
+
+    def head(self, n, extra=""):
+        return json.loads(self.gh("pr", "view", str(n), "--json", "headRefOid,headRefName,baseRefName,state,title,body,files" + extra))
+
+    def statuses(self, sha):
+        data = json.loads(self.api(f"repos/{self.slug}/commits/{sha}/status"))
+        return [s for s in data["statuses"] if s["context"] == STATUS]
+
+    def set_status(self, sha, state, description):
+        self.api("--method", "POST", f"repos/{self.slug}/statuses/{sha}",
+                 "-f", f"state={state}", "-f", f"context={STATUS}", "-f", f"description={description}")
+
+    # issues
+
+    def issue_create(self, title, body, labels):
+        print(self.gh("issue", "create", "--title", title, "--body", body,
+                      *[a for label in labels for a in ("--label", label)]))
+
+    def issue_list(self, labels):
+        args = ["issue", "list", "--state", "open", "--json", "number,title,labels", "--limit", "200"]
+        if labels:
+            args += ["--search", "label:" + ",".join(f'"{label}"' for label in labels)]
+        for i in json.loads(self.gh(*args)):
+            print(f"#{i['number']}\t{i['title']}\t{','.join(l['name'] for l in i['labels'])}")
+
+    def issue_view(self, n):
+        # Formatted from JSON: `gh issue view --comments` prints only the comments
+        # when stdout is not a terminal, and agents never have one.
+        i = json.loads(self.gh("issue", "view", str(n), "--json", "title,state,labels,body,comments"))
+        print(f"#{n} {i['title']}\nstate: {i['state'].lower()}\n"
+              f"labels: {', '.join(l['name'] for l in i['labels']) or '-'}\n\n{i['body']}")
+        for c in i["comments"]:
+            print(f"\n--- comment {c['createdAt']}\n{c['body']}")
+
+    def issue_comment(self, n, body):
+        print(self.gh("issue", "comment", str(n), "--body", body))
+
+    def issue_edit(self, n, add, remove):
+        # Same refusals as local mode. The REST issues endpoint answers for PRs too, marked by "pull_request".
+        try:
+            found = json.loads(self.api(f"repos/{self.slug}/issues/{n}"))
+        except RuntimeError as e:
+            if "HTTP 404" in str(e):
+                raise Refused(f"#{n} does not exist") from None
+            raise
+        if "pull_request" in found:
+            raise Refused(f"#{n} is a PR, not an Issue")
+        self.gh("issue", "edit", str(n), *[a for l in add for a in ("--add-label", l)],
+                *[a for l in remove for a in ("--remove-label", l)])
+        labels = json.loads(self.gh("issue", "view", str(n), "--json", "labels"))["labels"]
+        print(f"#{n}: labels: {', '.join(l['name'] for l in labels) or '-'}")
+
+    def issue_close(self, n):
+        print(self.gh("issue", "close", str(n)))
+
+    # PRs
+
+    def pr_create(self, title, body, base):
+        branch = check_publishable(base)
+        check_body(body)
+        git("push", "--quiet", "-u", self.remote, branch)
+        print(self.gh("pr", "create", "--base", base, "--head", branch, "--title", title, "--body", body))
+
+    def pr_list(self):
+        for p in json.loads(self.gh("pr", "list", "--state", "open", "--json", "number,title,headRefName,baseRefName")):
+            print(f"#{p['number']}\t{p['title']}\t{p['headRefName']} -> {p['baseRefName']}")
+
+    def pr_view(self, n):
+        pr = self.head(n, ",mergeStateStatus,autoMergeRequest")
+        latest = self.statuses(pr["headRefOid"])
+        review = f"{latest[0]['state']} ({latest[0]['description']})" if latest else "none"
+        print(f"#{n} {pr['title']}\nstate: {pr['state'].lower()}\nbranch: {pr['headRefName']} -> {pr['baseRefName']}\n"
+              f"head: {pr['headRefOid']}\n{STATUS}: {review}\nmerge state: {pr['mergeStateStatus'].lower()}\n"
+              f"auto-merge: {'on' if pr.get('autoMergeRequest') else 'off'}\n"
+              f"files: {', '.join(f['path'] for f in pr['files']) or '-'}\n\n{pr['body']}")
+
+    def pr_checkout(self, n):
+        pr = self.head(n)
+        main_tree = worktrees()[0][0]
+        if git("rev-parse", "--show-toplevel") == main_tree:
+            raise Refused(f"refusing to run in the main worktree ({main_tree}); reviews run in their own")
+        git("fetch", "--quiet", self.remote, pr["headRefName"])
+        if git("rev-parse", "FETCH_HEAD") != pr["headRefOid"]:
+            raise Refused(f"#{n}'s head moved while fetching; run tf pr checkout {n} again")
+        git("checkout", "--quiet", "--detach", pr["headRefOid"])
+        print(f"tf: detached at {pr['headRefOid'][:12]} ({pr['headRefName']})")
+        copy_env(main_tree)
+
+    def pr_diff(self, n, paths):
+        pr = self.head(n)
+        git("fetch", "--quiet", self.remote, pr["baseRefName"])
+        if git("cat-file", "-t", pr["headRefOid"], check=False) != "commit":
+            raise Refused(f"#{n}'s head is not in this clone; run tf pr checkout {n} first")
+        print(git("diff", f"FETCH_HEAD...{pr['headRefOid']}", "--", *paths))
+
+    def pr_claim(self, n):
+        # ponytail: check-then-set, so two claims in the same instant can both win.
+        # Only the one lead that owns a PR ever claims it; add a nonce re-read if that changes.
+        sha = self.head(n)["headRefOid"]
+        latest = self.statuses(sha)
+        if latest and latest[0]["state"] == "pending":
+            raise Refused(f"#{n} is already claimed by another reviewer")
+        self.set_status(sha, "pending", "review in progress")
+        print(f"#{n}: claimed at {sha[:12]}")
+
+    def pr_release(self, n):
+        sha = self.head(n)["headRefOid"]
+        latest = self.statuses(sha)
+        if latest and latest[0]["state"] == "pending":
+            self.set_status(sha, "error", "review abandoned without a verdict")
+        print(f"#{n}: released")
+
+    def checks(self, n, required):
+        """The PR's checks, without our own status. A failed gh call raises RuntimeError.
+
+        gh exits 8 while checks are pending (`gh pr checks --help`), so the exit code alone does
+        not say the call failed: stdout that parses as a JSON list is the answer. Without one,
+        only gh's "no [required] checks reported" means none; anything else is a failure.
+        """
+        args = ["gh", "pr", "checks", str(n), "-R", self.slug, "--json", CHECK_FIELDS]
+        result = subprocess.run(args + (["--required"] if required else []), text=True, capture_output=True)
+        try:
+            data = json.loads(result.stdout)
+        except ValueError:
+            data = None
+        if not isinstance(data, list):
+            if "checks reported" in result.stderr:
+                return []
+            raise RuntimeError(f"gh pr checks failed ({result.returncode}): {(result.stderr or result.stdout).strip()}")
+        return [c for c in data if c["name"] != STATUS]
+
+    def polls(self, n, own=False):
+        """Yield (required, checks, error) once per poll of the PR's gating checks, until one TF_GATE_WAIT deadline.
+
+        `required` is the PR's required checks, `checks` those that gate it (the required ones, else the
+        `gate` check), `error` the failed read, if any. With `own`, tf does not trust the required checks:
+        `required` stays empty and `checks` is the `gate` check alone. The caller stops the loop when it has
+        what it needs; the last yield is the state at the deadline. A failed or empty poll is retried.
+        """
+        wait, poll = gate_timing()
+        deadline, announced = time.monotonic() + wait, False
+        while True:
+            error = None
+            try:
+                required = [] if own else self.checks(n, required=True)
+                checks = required or [c for c in self.checks(n, required=False) if c["name"] == GATE]
+            except RuntimeError as e:
+                required, checks, error = [], [], e  # transient: never fall back to `gate` alone on a failed --required query
+            yield required, checks, error
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            pending = pending_names(checks)
+            if not announced and pending:
+                print(f"waiting for: {', '.join(pending)}", flush=True)
+                announced = True
+            time.sleep(min(poll, left))
+
+    def judge(self, n, checks, error):
+        """Exit by the state polls() ended on: unreadable CI 3, no `gate` check 2, still pending 3, a red check 1."""
+        wait = gate_timing()[0]
+        if error:
+            raise Refused(f"could not read CI within {wait:g}s: {error}")
+        if not checks:
+            raise SetupError(f"#{n} has no `{GATE}` check; add templates/ci.yml as .github/workflows/gate.yml")
+        for c in checks:
+            print(f"{c['name']}: {c['bucket']}")
+        if pending_names(checks):
+            try:  # a pending check at the deadline: show enough of gh's answer to tell a slow run from a stale rollup (#254)
+                head = self.head(n)["headRefOid"]
+            except RuntimeError as e:
+                head = f"unreadable ({e})"
+            print(f"head: {head}")
+            for c in checks:
+                if c["bucket"] == "pending":
+                    print(f"  {json.dumps(c)}")
+            raise Refused(f"CI did not finish within {wait:g}s; still running: {', '.join(pending_names(checks))}")
+        if any(c["bucket"] != "pass" for c in checks):
+            sys.exit(1)
+
+    def pr_gate(self, n):
+        """CI replaces the reviewer's local run: the required checks, or else the `gate` check, must have passed."""
+        for required, checks, error in self.polls(n):
+            if checks and not pending_names(checks):
+                break
+        self.judge(n, checks, error)
+
+    def approved(self, n, pr):
+        latest = self.statuses(pr["headRefOid"])
+        if not latest or latest[0]["state"] != "success":
+            raise Refused(f"#{n} has no APPROVE for its current head {pr['headRefOid'][:12]}")
+
+    def pr_review(self, n, verdict, sha, body):
+        pr = self.head(n)
+        if pr["headRefOid"] != sha:
+            raise Refused(f"#{n}'s head moved since {sha[:12]}; review the new head")
+        self.gh("pr", "review", str(n), "--comment", "--body", body)
+        state = "success" if verdict == "APPROVE" else "failure"
+        self.set_status(sha, state, f"{verdict} by teamflow:review-lead")
+        print(f"#{n}: {verdict} recorded at {sha[:12]}")
+        if verdict == "APPROVE":
+            self.arm(n, pr)
+
+    def ruleset_requires_review(self, base):
+        """Whether a ruleset on `base` requires both the `gate` and the review status; the read can raise."""
+        rules = json.loads(self.api(f"repos/{self.slug}/rules/branches/{base}"))
+        contexts = {c["context"] for r in rules if r["type"] == "required_status_checks"
+                    for c in r["parameters"]["required_status_checks"]}
+        return {GATE, STATUS} <= contexts
+
+    def arm(self, n, pr):
+        """After an APPROVE: with the ruleset, enable auto-merge pinned to the reviewed head, so GitHub merges
+        once the required checks pass and no merge command follows. Arms nothing for a stacked PR or without
+        the ruleset. The verdict is already recorded, so a failure here raises ArmFailed."""
+        if pr["baseRefName"] != self.cfg["base"]:
+            print(f"#{n} targets {pr['baseRefName']}, not {self.cfg['base']}: auto-merge not enabled; merge its dependency first")
+            return
+        try:
+            if not self.ruleset_requires_review(pr["baseRefName"]):
+                print(f"#{n}: no ruleset requires `{GATE}` and `{STATUS}`: auto-merge not enabled; run tf pr merge {n}")
+                return
+            print(self.gh(*self.merge_args(n, pr), "--auto") or
+                  f"#{n}: auto-merge requested; tf pr view {n} shows whether GitHub merged it or queued it")
+        except (RuntimeError, ValueError, KeyError) as e:
+            raise ArmFailed(f"verdict recorded, but auto-merge was not enabled ({e}); run tf pr merge {n}")
+
+    def merge_args(self, n, pr):
+        body = "\n".join([*(f"Closes #{i}" for i in closes(pr["body"])), "Reviewed-by: teamflow:review-lead"])
+        return ["pr", "merge", str(n), "--merge", "--match-head-commit", pr["headRefOid"],
+                "--subject", f"Merge {pr['headRefName']}: {pr['title']}", "--body", body]
+
+    def pr_merge(self, n):
+        pr = self.head(n)
+        self.targets_base(n, pr)
+        self.approved(n, pr)
+        args = self.merge_args(n, pr)
+        try:
+            trusted = self.ruleset_requires_review(pr["baseRefName"])
+        except (RuntimeError, ValueError, KeyError) as e:  # never arm auto-merge on a ruleset that was not read
+            print(f"#{n}: could not read the ruleset ({e}): checking `{GATE}` and the verdict myself, then merging directly")
+            trusted = False
+        for required, checks, error in self.polls(n, own=not trusted):
+            if required or checks and not pending_names(checks):  # a ruleset enforces its required checks
+                break
+        if not required:
+            self.judge(n, checks, error)
+        # the wait may have outlived what was checked above; only tf rechecks it (the ruleset does not)
+        now = self.head(n)
+        if now["headRefOid"] != pr["headRefOid"]:
+            raise Refused(f"#{n}'s head moved from {pr['headRefOid'][:12]} to {now['headRefOid'][:12]} during the wait; review the new head")
+        if now["state"] != "OPEN":
+            raise Refused(f"#{n} is not open any more ({now['state'].lower()})")
+        self.targets_base(n, now)
+        if required:
+            print(self.gh(*args, "--auto") or f"#{n}: auto-merge enabled; GitHub merges once every required check passes")
+            return
+        self.approved(n, pr)
+        print(self.gh(*args) or f"#{n}: merged")
+
+    def targets_base(self, n, pr):
+        if pr["baseRefName"] != self.cfg["base"]:
+            raise Refused(f"#{n} targets {pr['baseRefName']}, not {self.cfg['base']}: merge its dependency first")
+
+
+# -- setup -------------------------------------------------------------------
+
+IGNORES = [".manager-state.json", ".env"]
+
+LATER_GITHUB = ("later: github label and ruleset setup (with auto-merge settings) is "
+                "not implemented in teamflow-pi yet; until then github mode runs "
+                "unenforced, with tf checking the gate and the verdict itself")
+
+
+def setup(forge_name, remote, apply):
+    """Apply what a plugin cannot: dry run unless `apply`; never overwrites, never commits.
+
+    Runs in whichever worktree it is started in, so the setup files can be
+    prepared on a branch and merged through a PR like any other change.
+    """
+    root = Path(git("rev-parse", "--show-toplevel"))
+
+    def load_json(path):
+        shown = path.relative_to(root) if path.is_relative_to(root) else path
+        try:
+            data = json.loads(read_file(path))
+        except ValueError as error:
+            raise SetupError(f"{shown} is not valid JSON ({error})") from None
+        if not isinstance(data, dict):
+            raise SetupError(f"{shown} is not a JSON object")
+        return data
+
+    config = root / ".pi" / "teamflow.json"
+    configured = load_json(config) if config.is_file() else {}
+    remote = remote or configured.get("remote", "origin")  # an explicit --remote wins over the file
+    hub = GitHub({"remote": remote}) if forge_name == "github" else None  # check gh and remote before writing
+
+    def do(message, action):
+        print(f"{'' if apply else 'would '}{message}")
+        if apply:
+            action()
+
+    def write_json(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    copies = [("gate.sh", "scripts/gate.sh"), ("pull_request_template.md", ".github/pull_request_template.md")]
+    if forge_name == "github":
+        copies.append(("ci.yml", ".github/workflows/gate.yml"))
+    for source, target in copies:
+        if (root / target).exists():
+            print(f"ok: {target} exists, left alone")
+            continue
+
+        def copy(source=source, target=target):
+            (root / target).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(TEMPLATES / source, root / target)  # keeps gate.sh executable
+        do(f"create {target} from templates/{source}", copy)
+
+    ignore = root / ".gitignore"
+    present = read_file(ignore).splitlines() if ignore.is_file() else []
+    missing = [line for line in IGNORES if line not in present]
+    if missing:
+        def append():
+            text = read_file(ignore) if ignore.is_file() else ""
+            ignore.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n")
+        do(f"add {', '.join(missing)} to .gitignore", append)
+    else:
+        print("ok: .gitignore covers teamflow's runtime files")
+
+    wanted = {"forge": forge_name, **({"remote": remote} if forge_name == "github" else {})}
+    if config.is_file():
+        existing = configured.get("forge", "local")
+        print(f"ok: {CONFIG_FILE} exists" + ("" if existing == forge_name else
+              f"; note: it says forge {existing}, not {forge_name}, left alone"))
+    else:
+        do(f"create {CONFIG_FILE} with {json.dumps(wanted)}", lambda: write_json(config, wanted))
+
+    if hub:
+        # The label, auto-merge and ruleset work of teamflow's github setup is
+        # deferred in teamflow-pi (porting-plan "Later"); until it lands,
+        # github mode runs unenforced.
+        print(LATER_GITHUB)
+
+    if apply:
+        print("next: fill in scripts/gate.sh, then commit these files and merge them to the base branch")
+    else:
+        print("dry run: nothing changed; run again with --apply")
+
+
+# -- CLI ---------------------------------------------------------------------
+
+
+def body_args(parser):
+    """--body-file - reads stdin, so an agent passes text as a quoted heredoc
+    (<<'EOF'): the shell expands nothing inside it, and no scratch file is needed."""
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--body")
+    group.add_argument("--body-file")
+
+
+def body(a):
+    if a.body is not None:
+        return a.body
+    return sys.stdin.read() if a.body_file == "-" else read_file(a.body_file)
+
+
+def check_labels(labels):
+    # A comma may split in gh (from gh's help text; unverified, #171) and fakes a second label in `issue list`; a control character (C0, DEL, C1
+    # such as U+0085) fakes a line. isprintable also refuses other non-ASCII spaces and unassigned characters.
+    for l in labels:
+        if not l or "," in l or not l.isprintable():
+            raise SetupError(f"invalid label {l!r}: it must be non-empty, with no comma or control character")
+    return labels
+
+
+def edit_labels(a):
+    if not (a.add_label or a.remove_label):
+        raise SetupError("issue edit needs --add-label or --remove-label")
+    check_labels(a.add_label + a.remove_label)
+    both = set(a.add_label) & set(a.remove_label)
+    if both:
+        raise SetupError(f"label on both --add-label and --remove-label: {', '.join(sorted(both))}")
+    return a.add_label, a.remove_label
+
+
+def forge():
+    cfg = config()
+    if cfg["forge"] == "github":
+        return GitHub(cfg)
+    return Local(cfg)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="tf", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="noun", required=True)
+
+    sub.add_parser("mode").set_defaults(noun="mode", verb=None)
+
+    s = sub.add_parser("setup")
+    s.add_argument("--forge", choices=["local", "github"], default="local")
+    s.add_argument("--remote", default=None, help="the remote to check and record in the config (default: the configured one, else origin)")
+    s.add_argument("--apply", action="store_true")
+
+    i = sub.add_parser("issue")
+    iverbs = i.add_subparsers(dest="verb", required=True)
+    ic = iverbs.add_parser("create")
+    ic.add_argument("--title", required=True)
+    ic.add_argument("--label", action="append", default=[])
+    body_args(ic)
+    il = iverbs.add_parser("list")
+    il.add_argument("--label", action="append", default=[])
+    iv = iverbs.add_parser("view"); iv.add_argument("n", type=int)
+    icm = iverbs.add_parser("comment"); icm.add_argument("n", type=int); body_args(icm)
+    ie = iverbs.add_parser("edit"); ie.add_argument("n", type=int)
+    ie.add_argument("--add-label", action="append", default=[])
+    ie.add_argument("--remove-label", action="append", default=[])
+    icl = iverbs.add_parser("close"); icl.add_argument("n", type=int)
+
+    q = sub.add_parser("pr")
+    qverbs = q.add_subparsers(dest="verb", required=True)
+    qc = qverbs.add_parser("create")
+    qc.add_argument("--title", required=True)
+    qc.add_argument("--base", default=None)
+    body_args(qc)
+    qverbs.add_parser("list")
+    qv = qverbs.add_parser("view"); qv.add_argument("n", type=int)
+    qco = qverbs.add_parser("checkout"); qco.add_argument("n", type=int)
+    qc1 = qverbs.add_parser("claim"); qc1.add_argument("n", type=int)
+    qc2 = qverbs.add_parser("release"); qc2.add_argument("n", type=int)
+    qg = qverbs.add_parser("gate"); qg.add_argument("n", type=int)
+    qd = qverbs.add_parser("diff"); qd.add_argument("n", type=int); qd.add_argument("paths", nargs="*")
+    qr = qverbs.add_parser("review"); qr.add_argument("n", type=int)
+    qr.add_argument("--verdict", choices=["APPROVE", "REQUEST_CHANGES"], required=True)
+    qr.add_argument("--sha", required=True)
+    body_args(qr)
+    qm = qverbs.add_parser("merge"); qm.add_argument("n", type=int)
+
+    a = p.parse_args()
+    try:
+        if a.noun == "setup":
+            setup(a.forge, a.remote, a.apply)
+            return
+        f = forge()
+        if a.noun == "mode":
+            print("github" if isinstance(f, GitHub) else "local")
+        elif a.noun == "issue":
+            {"create": lambda: f.issue_create(a.title, body(a), check_labels(a.label)),
+             "list": lambda: f.issue_list(a.label),
+             "view": lambda: f.issue_view(a.n),
+             "comment": lambda: f.issue_comment(a.n, body(a)),
+             "edit": lambda: f.issue_edit(a.n, *edit_labels(a)),
+             "close": lambda: f.issue_close(a.n)}[a.verb]()
+        else:
+            {"create": lambda: f.pr_create(a.title, body(a), a.base or f.cfg["base"]),
+             "list": f.pr_list,
+             "view": lambda: f.pr_view(a.n),
+             "checkout": lambda: f.pr_checkout(a.n),
+             "claim": lambda: f.pr_claim(a.n),
+             "release": lambda: f.pr_release(a.n),
+             "gate": lambda: f.pr_gate(a.n),
+             "diff": lambda: f.pr_diff(a.n, a.paths),
+             "review": lambda: f.pr_review(a.n, a.verdict, a.sha, body(a)),
+             "merge": lambda: f.pr_merge(a.n)}[a.verb]()
+    except SetupError as e:
+        print(f"tf: {e}", file=sys.stderr)
+        sys.exit(2)
+    except Refused as e:
+        print(f"tf: {e}", file=sys.stderr)
+        sys.exit(3)
+    except ArmFailed as e:
+        print(f"tf: {e}", file=sys.stderr)
+        sys.exit(4)
+    except (RuntimeError, OSError) as e:
+        print(f"tf: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

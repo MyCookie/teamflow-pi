@@ -441,11 +441,14 @@ This doc describes teamflow. Deltas, from the decisions in
 
 - **D2:** the config file is `.pi/teamflow.json`, not `.claude/teamflow.json`
   (Sections 2.4 and 1).
-- The `.gitignore` entry `.claude/worktrees/` names where teamflow's worktrees
-  live; in Pi, worktrees are created by pi-subagents (`subagent({worktree:
-  true})`, porting-plan Phase 0 spike 4) — the entry must name where
-  **pi-subagents** puts them, which is not decided yet (open decision for
-  Phase 3/5). `.manager-state.json` and `.env` are unchanged.
+- **Worktrees `.gitignore` entry: none (decided by the human, 2026-11-09).**
+  Teamflow's `.claude/worktrees/` entry names where teamflow's worktrees
+  live. In Pi there is no in-repository worktree location to ignore:
+  pi-subagents' managed worktrees live outside the repository
+  (`{dirname(repo)}/worktrees/`; in-checkout bases are rejected as unsafe —
+  porting-plan spike 4), and the impl-lead's manual worktrees are
+  `../<branch>` siblings (agents.md §5). `tf setup` therefore appends only
+  `.manager-state.json` and `.env` to `.gitignore` (the missing ones only).
 - The GitHub-mode label/ruleset work (§4) is out of scope until after the
   Phase 5 local-mode run (porting-plan decision).
 - The templates themselves (§5) are forge content, not harness content.
