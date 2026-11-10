@@ -846,3 +846,76 @@ default level and stop-switch from the skill body); the plan-exact run
   listed the package's extension — not required here.
 
 **Status: DONE** (runs 2026-11-06T23:14Z and 23:21Z)
+
+## Phase 3, Part 1 — `tf` on PATH via spawnHook (D4)
+
+Build record for [extension-spec.md](extension-spec.md) Part 1. The check
+below is the spec's; the lib tests are the spec's rule "write the test
+first and see it fail". Versions: Pi 1.5.0, pi-subagents **0.87.0** (up
+from 0.86.0 at spike time), model `nvidia/Qwen3.8-27B-NVFP4` (default for
+these `pi -p` runs; read from the session files), Node v26.13.0.
+
+### Files
+
+- `extensions/teamflow-lib.test.ts` — 3 tests for `pathWithBin`.
+- `extensions/teamflow-lib.ts` — `pathWithBin(path, bin)`: `bin` + `:` +
+  old `PATH`, or just `bin` when the old one is empty/undefined.
+- `extensions/teamflow.ts` — replaces the `bash` tool:
+  `createBashTool(process.cwd(), { spawnHook })` with
+  `env: { ...env, PATH: pathWithBin(env.PATH, binDir) }`, where
+  `binDir = join(packageRoot, "bin")` and
+  `packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..")`.
+  Shape copied from `PD/examples/extensions/bash-spawn-hook.ts`; package
+  root from `PD/examples/extensions/doom-overlay/wad-finder.ts:7`.
+
+### Test-first
+
+`node --test extensions/teamflow-lib.test.ts` before the lib existed:
+`ERR_MODULE_NOT_FOUND` for `extensions/teamflow-lib.ts`, `fail 1`. After
+writing the lib: `tests 3, pass 3, fail 0`.
+
+### The spec's check (run 2026-11-10T03:54Z)
+
+```
+$ pi -e ./extensions/teamflow.ts -p "Run: command -v tf"
+```
+
+Output:
+
+> `tf` resolves to `/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi/bin/tf` — the project's own script is on your PATH.
+
+A path ending in `bin/tf`. **Pass.**
+
+### Negative control (run 2026-11-10T04:02Z)
+
+Same prompt without `-e`: `command -v tf` → exit 1, no output (`tf` not on
+PATH). The hook is the only source of `tf` on PATH.
+
+### Supplementary (run 2026-11-10T04:03Z)
+
+`pi -e ./extensions/teamflow.ts -p "Run exactly: echo \$(command -v tf) &&
+head -1 <<< \"\$PATH\" && tf mode"` printed:
+
+```
+/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi/bin/tf
+/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi/bin:/Users/Ashish/.pi/agent/bin:/Users/Ashish/.local/bin:/Users/Ashish/Library/Python/3.12/bin:/opt/homebrew/bin:...
+local
+```
+
+`bin/` is the first PATH entry, and `tf` executes (`tf mode` → `local`).
+
+### Observed
+
+- Part 1 done check passes in the main session via `pi -e`.
+- API confirmed at the cited lines: `createBashTool(cwd, { spawnHook })`
+  (`PD/dist/core/sdk.d.ts:80`); `BashSpawnContext.env` is
+  `NodeJS.ProcessEnv`, so `env.PATH` may be undefined
+  (`PD/dist/core/tools/bash.d.ts:64-70`) — the lib's signature matches.
+- `node --test` runs `.ts` test files directly on Node v26.13.0, and the
+  lib import must keep its `.ts` extension (spec's Node-docs note, now
+  exercised).
+- Scope caveat for later parts (spike 5): `-e` reaches only the main
+  session; when the package is installed, the spawnHook must be discoverable
+  by the detached background runner (user scope or the settings package).
+
+**Status: DONE** (runs 2026-11-10T03:54Z–04:05Z)
