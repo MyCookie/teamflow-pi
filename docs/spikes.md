@@ -1146,6 +1146,60 @@ shadow `tf` in the source teamflow repo); `pi install ./` re-adds it.
 
 **Status: DONE** (runs 2026-11-10T17:2xZ–17:4xZ)
 
+### Phase 3 re-verification — full check suite re-run (2026-11-10T20:0xZ–20:2xZ)
+
+Complete re-run of every Phase 3 check against the committed tree
+(`b68ad98`; that commit adds only `skills/workflow/SKILL.md` and the
+Phase 4 record, so no Phase 3 file changed since `2140fee`). Versions:
+Pi 1.5.0, pi-subagents 0.87.0 (package dependency and installed copy,
+both read from their `package.json`), model local vllm Qwen (the default
+for these `pi -p` runs), Node v26.13.0. All `pi` runs stripped inherited
+`PI_MODEL`/`PI_PROVIDER`/`PI_REASONING_LEVEL`/`PI_SESSION_ID`/
+`PI_SESSION_FILE` and used `--no-session`.
+
+**Fast checks.** `node --test extensions/teamflow-lib.test.ts` →
+`tests 13, pass 13, fail 0`. `./scripts/gate.sh` → `Ran 138 tests … OK`,
+table `shell scripts parse | pass`, `unit tests | pass`, `gate: green.`
+
+**Part 1** — `pi -e ./extensions/teamflow.ts -p "Run exactly: command -v
+tf; then print the output."` printed
+`/Users/Ashish/SynologyDrive/Projects/Pi/teamflow-pi/bin/tf` ✅.
+
+**Part 2** — with `--teamflow`: "I'm teamflow-manager, the main-session
+manager for teamflow-pi." ✅; without the flag: "My name is Qwen." ✅.
+
+**Part 3** (throwaway user-scope agents `implementer`/`impl-lead` in
+`~/.pi/agent/agents/tfverify/`, deleted after the runs):
+
+- `--teamflow`, launch `implementer` → refused, verbatim: `The teamflow
+  manager may only launch the leads: research-lead,impl-lead,review-lead.`
+  ✅
+- `--teamflow`, launch `impl-lead` → child ran, final message `LEAD-RAN` ✅
+- without `--teamflow`, launch `implementer` → child ran, `IMPL-RAN` ✅
+- without `--teamflow`, launch `impl-lead` → child ran, `LEAD-RAN` ✅
+
+**Final gate, installed package** — `pi install ./` from the package
+directory; runs from a clean directory; `pi remove .` and the throwaway
+agents removed after:
+
+- `pi --teamflow -p "What is your name?…"` → "I'm teamflow-manager." ✅
+- `pi -p "Run exactly: tf mode;…"` → first run from a non-git `mktemp` dir
+  printed `tf: not inside a git repository` (exit 2); re-run from a clean
+git repo (`git init -b main`) → `local` ✅. The "clean empty directory"
+in the gate record above must have been a git repo: `tf mode` delegates to
+`bin/teamflow-config` main(), which runs `git worktree list --porcelain`
+and fails that message when not in one (`bin/teamflow-config:78`); no
+`.pi/teamflow.json` falls back to `DEFAULTS` with `forge: "local"`.
+- `pi --teamflow`, launch `implementer` → refused with our reason ✅
+- `pi --teamflow`, launch `impl-lead` → child ran, `LEAD-RAN` ✅ (live
+  ceiling on the installed package: no over-blocking)
+
+**Result: all Phase 3 checks pass on the current tree.** One correction
+for future phases: `tf mode` needs to run inside a git repo on the base
+branch, not in any empty directory.
+
+**Status: VERIFIED** (runs 2026-11-10T20:0xZ–20:2xZ)
+
 ## Phase 4, Task 1 — the workflow skill (2026-11-10T13:01Z)
 
 `skills/workflow/SKILL.md` (698 lines), written new from the Phase 1
