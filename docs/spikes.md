@@ -1024,3 +1024,124 @@ Observed:
   the lib test, and this file's quoted lines. A model that explores the
   repo before answering could find it and answer with it — a false
   control failure. The transcript check would still grade it correctly.
+
+## Phase 3, Part 3 — spawn limits (D3)
+
+Build record for [extension-spec.md](extension-spec.md) Part 3. Versions:
+Pi 1.5.0, pi-subagents 0.87.0, model `nvidia/Qwen3.8-27B-NVFP4` (vllm),
+Node v26.13.0. Runs 2026-11-10T17:2xZ–17:4xZ.
+
+### The two unknowns, resolved before writing the part
+
+**Agent names: plain.** Spike 1 already found it: no `package:` field, so
+canonical names are plain (this file, Spike 1; the refusal text there names
+plain agents). The ten names are teamflow's `agents/` minus `manager` (the
+main session): `architect-reviewer`, `docs-reviewer`, `impl-lead`,
+`implementer`, `quality-reviewer`, `research-lead`, `researcher`,
+`review-lead`, `security-reviewer`, `simplicity-reviewer`.
+
+**Import: npm dependency works; the ceiling takes effect.**
+
+- Cited source verified: `PS/docs/extension-api.md:413-445` —
+  `registerSubagentCapabilityCeiling({ sessionId, source, ceiling })`
+  returns a handle with `update()` / `dispose()`; register with
+  `ctx.sessionManager.getSessionId()` (a ceiling by session file path does
+  not apply). `getSessionId(): string` at
+  `PD/dist/core/session-manager.d.ts:253`.
+- The registry (spec's "inferred, not run"):
+  `globalThis[Symbol.for("pi-subagents.capability-ceiling.v1")]`, a Map of
+  `sessionId → registrations` (`PS/bundle/chunk-QXASAHIA.js:4-13`); the
+  launch path asserts
+  `assertAgentAllowedByCapabilityCeiling(agentName, ceiling)` against
+  `resolveCurrentSubagentCapabilityCeiling(currentSessionId)` after the
+  unknown-agent check (`PS/bundle/chunk-OZCPYJEY.js:3013-3015, 6529-6554`).
+- `package.json` now has `dependencies.pi-subagents: 0.87.0` (pinned to the
+  installed copy's version) after `npm install`;
+  `import … from "pi-subagents/capability-ceiling"` resolves from
+  `extensions/`.
+- **Cross-copy test, run:** one node process, both module copies — the
+  dependency copy and Pi's installed copy
+  (`~/.pi/agent/npm/node_modules/pi-subagents/bundle/capability-ceiling.js`).
+  Dependency copy registers (source `teamflow`, ten agents) → installed
+  copy resolves it (`sources = [teamflow]`, 10 agents, impl-lead allowed);
+  installed copy registers → dependency copy resolves it; dependency copy
+  `dispose()`s → installed copy resolves `undefined`. Registry key shared.
+  The inference is run: in the one pi process that hosts both extension
+  copies, our registration is visible to pi-subagents' tool code.
+- `PI_SUBAGENT_CHILD` confirmed as `SUBAGENT_CHILD_ENV`
+  (`PS/src/runs/shared/child-runtime-config.d.ts:15`).
+
+### Test-first
+
+Nine `spawnDecision` tests added: one per rule (child allowed; each of the
+three leads allowed; `action: "resume"` allowed) plus a non-lead `agent`, a
+lead inside `tasks`, a missing `agent`, and a lead with a `chain`. First
+run: `fail 1` (import error). After implementing
+`spawnDecision` in `extensions/teamflow-lib.ts`: **13/13 pass** (4 from
+Parts 1–2 + 9 new).
+
+### Files
+
+- `extensions/teamflow-lib.ts` — `spawnDecision(input, isChild)`: child →
+  allow; `action: "resume"` → allow; a lead with no `tasks`/`chain` field →
+  allow; anything else → refusal naming the three leads (fails closed).
+- `extensions/teamflow.ts` — `TEAMFLOW_AGENTS` (the ten plain names);
+  `session_start` (flag on): dispose any previous handle, register the
+  ceiling with `ctx.sessionManager.getSessionId()`, source `teamflow`;
+  `session_shutdown`: `dispose()`; `tool_call` (flag on,
+  `event.toolName === "subagent"`):
+  `spawnDecision(event.input, process.env.PI_SUBAGENT_CHILD === "1")` →
+  `{ block: true, reason }` or `undefined`. Handler shape from
+  `PD/examples/extensions/permission-gate.ts:13-33`; `tool_call` block
+  semantics from `PD/docs/extensions.md:971-1011`.
+- `package.json` — `pi.extensions` now points at
+  `./extensions/teamflow.ts`, not the `./extensions` directory: pi loads
+  **every** `.ts` file in a declared directory as an extension, so the lib
+  and the test file failed to load (the test file even executed its
+  `node:test` `test()` calls at import). PD/docs/packages.md: "A file path
+  loads one extension. A directory follows normal package discovery
+  rules." This only surfaces for an installed package — `-e` always named
+  the file.
+
+### The spec's check (2026-11-10T17:23Z–17:25Z, `-e` mode)
+
+Throwaway user-scope agents `implementer`/`impl-lead`
+(`~/.pi/agent/agents/tfpart3/`, deleted after the run, Spike 1 pattern).
+
+- `--teamflow`, launch `implementer` → refused, verbatim:
+  `The teamflow manager may only launch the leads: research-lead,impl-lead,review-lead.` ✅
+- `--teamflow`, launch `impl-lead` → launched; the child ran and replied.
+  ✅ (Also live proof the ten-name ceiling does not over-block.)
+- Without `--teamflow`, both launch. ✅
+
+**Live ceiling evidence:** the flagged session's transcript records the
+resolved ceiling on the `subagent` tool call —
+`"capabilityCeiling": {"version":1,"allowedAgents":[…ten…],
+"denyExtensions":false,"sources":["teamflow"]}`. The registration from our
+dependency copy was consumed by pi-subagents' own tool code in the live
+session.
+
+### Phase 3 final gate — installed package (2026-11-10T17:3xZ)
+
+`pi install ./` (personal scope). A local package loads from the resolved
+path without copying, and Pi does not install its dependencies
+(PD/docs/packages.md) — a fresh clone needs `npm install` before
+`pi install ./`; `node_modules/` is git-ignored and the pinned dependency
+plus lockfile make that deterministic. From a clean empty directory:
+
+- `pi --teamflow -p "What is your name?"` →
+  "My name is teamflow-manager." ✅ — one first attempt answered "Qwen"
+  instead (its thinking cites a "system reminder" identity); the re-runs
+  all passed (3/3) and a combined session answered the name **and**
+  tripped the gate in one turn. Model non-determinism in the identity
+  answer, not a mechanism failure — the transcript of every passing run
+  shows the injected line, and the failing run's miss was the model
+  choosing its built-in identity.
+- `pi -p "Run: tf mode"` → `local` ✅
+- `pi --teamflow -p "…launch implementer…"` → refused with our reason ✅
+
+Install removed after the gate (`pi remove .`) so the package's `bin/`
+does not prefix `PATH` for every session on this machine (it would
+shadow `tf` in the source teamflow repo); `pi install ./` re-adds it.
+
+**Status: DONE** (runs 2026-11-10T17:2xZ–17:4xZ)

@@ -5,12 +5,15 @@
   "keywords": [
     "pi-package"
   ],
+  "dependencies": {
+    "pi-subagents": "0.87.0"
+  },
   "pi": {
     "skills": [
       "./skills"
     ],
     "extensions": [
-      "./extensions"
+      "./extensions/teamflow.ts"
     ],
     "subagents": {
       "agents": [

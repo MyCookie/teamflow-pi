@@ -5,6 +5,9 @@
  *
  * Part 1 (D4): replace the bash tool with one whose commands run with the
  * package's bin/ first on PATH, so agents find `tf`.
+ * Part 3 (D3): with --teamflow, register the teamflow capability ceiling for
+ * the session and gate the main session's `subagent` launches to the three
+ * leads.
  *
  * Pattern copied from PD/examples/extensions/bash-spawn-hook.ts; package
  * root from PD/examples/extensions/doom-overlay/wad-finder.ts:7.
@@ -14,12 +17,32 @@ import { createBashTool, type ExtensionAPI } from "@earendil-works/pi-coding-age
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	registerSubagentCapabilityCeiling,
+	type SubagentCapabilityCeilingHandle,
+} from "pi-subagents/capability-ceiling";
 
-import { appendManagerPrompt, pathWithBin } from "./teamflow-lib.ts";
+import { appendManagerPrompt, pathWithBin, spawnDecision } from "./teamflow-lib.ts";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const binDir = join(packageRoot, "bin");
 const managerPath = join(packageRoot, "manager.md");
+
+// Part 3 (D3): the ten teamflow subagents — teamflow's agents/ minus manager
+// (the main session). Plain names: no `package:` field, so canonical names
+// are plain (docs/spikes.md, Spike 1).
+const TEAMFLOW_AGENTS = [
+	"architect-reviewer",
+	"docs-reviewer",
+	"impl-lead",
+	"implementer",
+	"quality-reviewer",
+	"research-lead",
+	"researcher",
+	"review-lead",
+	"security-reviewer",
+	"simplicity-reviewer",
+];
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
@@ -54,5 +77,39 @@ export default function (pi: ExtensionAPI) {
 		return {
 			systemPrompt: appendManagerPrompt(event.systemPrompt, manager),
 		};
+	});
+
+	// Part 3 (D3): the capability ceiling covers the whole agent tree.
+	// Registered with the session id (PS/docs/extension-api.md:413-445);
+	// pi-subagents imported as an npm dependency shares its registry with
+	// Pi's installed copy in this process (Symbol.for, verified in
+	// docs/spikes.md).
+	let ceiling: SubagentCapabilityCeilingHandle | undefined;
+
+	pi.on("session_start", (_event, ctx) => {
+		if (!pi.getFlag("teamflow")) return;
+		ceiling?.dispose();
+		ceiling = registerSubagentCapabilityCeiling({
+			sessionId: ctx.sessionManager.getSessionId(),
+			source: "teamflow",
+			ceiling: { allowedAgents: TEAMFLOW_AGENTS },
+		});
+	});
+
+	pi.on("session_shutdown", () => {
+		ceiling?.dispose();
+		ceiling = undefined;
+	});
+
+	// Part 3 (D3): the main session may only spawn the three leads. Shape
+	// from PD/examples/extensions/permission-gate.ts:13-33 — { block, reason }
+	// refuses, undefined allows.
+	pi.on("tool_call", (event) => {
+		if (!pi.getFlag("teamflow") || event.toolName !== "subagent") return;
+		const reason = spawnDecision(
+			event.input as Record<string, unknown>,
+			process.env.PI_SUBAGENT_CHILD === "1",
+		);
+		if (reason) return { block: true, reason };
 	});
 }

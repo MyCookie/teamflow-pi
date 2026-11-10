@@ -115,7 +115,7 @@ Done: every section names its teamflow source (file and commit), and every
 - Done: `./scripts/gate.sh` passes and `pi -e ./` starts without extension
   errors.
 
-### Phase 3: the extension
+### Phase 3: the extension — DONE 2026-11-10
 
 Built by Pi, from
 [extension-spec.md](extension-spec.md), which breaks it into three parts,

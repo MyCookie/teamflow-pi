@@ -11,6 +11,18 @@ records or on GitHub.
 
 ## Status
 
+**Phase 3 done (2026-11-10).** The extension
+([extensions/](extensions/)) is built: `spawnHook` puts the package's
+`bin/` on `PATH` so agents find `tf` (D4); `--teamflow` starts the main
+session as the teamflow manager (D3, placeholder
+[manager.md](manager.md)); and with the flag on the session registers the
+ten-agent capability ceiling and the main session may only spawn the three
+leads (`spawnDecision`, fails closed). Built test-first against
+[docs/extension-spec.md](docs/extension-spec.md) — 13 lib tests pass, and
+the spec's checks plus the installed-package gate are recorded in
+[docs/spikes.md](docs/spikes.md). `pi install ./` makes the package
+active; Phase 4 (the agents and the workflow skill) is next.
+
 **Phase 2 done (2026-11-09).** The package skeleton is in place:
 [package.json](package.json), the four forge templates in
 [templates/](templates/) (verbatim from teamflow @ `423109c`),
@@ -19,10 +31,10 @@ against the Phase 1 contracts, and the repo's own
 [scripts/gate.sh](scripts/gate.sh) running the unit tests (D7).
 138 unit tests in [tests/](tests/) cover both, test-first, with
 [fake_gh](tests/fake_gh.py) standing in for `gh` in GitHub-mode tests.
-Phase 3 (the extension) is next.
 
 Phase 0's eight spikes ran on Pi 1.5.0 / pi-subagents 0.86.0 and are
-recorded in [docs/spikes.md](docs/spikes.md).
+recorded in [docs/spikes.md](docs/spikes.md). (Phase 3 built and ran on
+pi-subagents 0.87.0.)
 
 **Who builds it.** Pi itself builds the extension
 (Phase 3), working from [AGENTS.md](AGENTS.md) and
