@@ -23,8 +23,15 @@ export function appendManagerPrompt(
 	return `${systemPrompt}\n\n${manager}`;
 }
 
-// Part 3 (D3): the three leads the manager may launch.
-const LEADS = ["research-lead", "impl-lead", "review-lead"];
+// Part 3 (D3): the three leads the manager may launch. Canonical names are
+// namespaced: agent frontmatter sets `package: teamflow`, so each lead
+// registers as teamflow.<name> (Phase 4, human decision — avoids shadowing
+// pi-subagents' builtin `researcher`).
+const LEADS = [
+	"teamflow.research-lead",
+	"teamflow.impl-lead",
+	"teamflow.review-lead",
+];
 
 /**
  * Part 3 (D3): refuse a main-session `subagent` call, or allow it.

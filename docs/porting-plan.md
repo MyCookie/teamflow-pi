@@ -127,17 +127,23 @@ each with an example to copy, a tested pure function and a check.
   `pi --teamflow` gets the manager prompt, `tf mode` prints `local`, and a
   `subagent` call for `implementer` from the main session is refused.
 
-### Phase 4: agents and the workflow skill
+### Phase 4: agents and the workflow skill — DONE 2026-11-11
 
-- Write the workflow skill from the Phase 1 rules, worded for Pi.
-- Write the ten subagents (the manager is the main session, D3) in
-  pi-subagents frontmatter: no `model` (D5); the spawn table as
-  `allowedAgents` on the three leads; no `subagent` tool for workers;
-  `inheritProjectContext: true`; a first step to read the workflow skill;
-  `ponytail`, `ponytail-audit`, `ponytail-debt` on simplicity-reviewer (D6).
-- A test that reads agent frontmatter and checks it against the spawn table.
-  Done: the gate passes with it, and it fails when one agent's
-  `allowedAgents` is widened.
+Built by Pi: the workflow skill (from the Phase 1 rules, worded for Pi —
+`docs/spikes.md`, Phase 4 Task 1) and the ten subagents in pi-subagents
+frontmatter (Phase 4 Task 2). `package: teamflow` makes the canonical
+names `teamflow.<name>` (no shadowing of the builtin `researcher`); no
+`model` (D5); `inheritProjectContext: true`; a first step to read the
+workflow skill; the spawn table as `allowedAgents` on the three leads; no
+`subagent` tool for the seven workers; `ponytail`, `ponytail-audit`,
+`ponytail-debt` on simplicity-reviewer (D6); `web_search`/`fetch_content`
+(pi-web-access) on the researcher.
+
+- Done: [tests/test_spawn_table.py](tests/test_spawn_table.py) reads agent
+  frontmatter and pins the spawn table. The gate passes with it (149
+  tests) and it fails when one agent's `allowedAgents` is widened. Live:
+  all ten register as `teamflow.<name>`, the depth-1 gate refuses the
+  workers, and `allowedAgents` holds at depth 2.
 
 ### Phase 5: end-to-end run
 

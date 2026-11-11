@@ -11,6 +11,21 @@ records or on GitHub.
 
 ## Status
 
+**Phase 4 done (2026-11-11).** The workflow skill
+([skills/workflow](skills/workflow/SKILL.md)) and the ten subagents
+([agents/](agents/)) are built. Each agent sets `package: teamflow`, so
+its canonical name is `teamflow.<name>` (no shadowing of the builtin
+`researcher`); no `model` (D5); `inheritProjectContext: true`; the
+workflow skill as the first step; the spawn table encoded as
+`allowedAgents` on the three leads; no `subagent` tool for the seven
+workers; `ponytail`, `ponytail-audit`, `ponytail-debt` on
+simplicity-reviewer (D6); and `web_search`/`fetch_content` on the
+researcher (pi-web-access). [tests/test_spawn_table.py](tests/test_spawn_table.py)
+reads the frontmatter and pins the spawn table — the gate stays green
+(149 tests) and fails when a lead's `allowedAgents` is widened. The
+record, including a live depth-2 check that `allowedAgents` holds, is in
+[docs/spikes.md](docs/spikes.md).
+
 **Phase 3 done (2026-11-10).** The extension
 ([extensions/](extensions/)) is built: `spawnHook` puts the package's
 `bin/` on `PATH` so agents find `tf` (D4); `--teamflow` starts the main
@@ -18,10 +33,10 @@ session as the teamflow manager (D3, placeholder
 [manager.md](manager.md)); and with the flag on the session registers the
 ten-agent capability ceiling and the main session may only spawn the three
 leads (`spawnDecision`, fails closed). Built test-first against
-[docs/extension-spec.md](docs/extension-spec.md) — 13 lib tests pass, and
+[docs/extension-spec.md](docs/extension-spec.md) — 14 lib tests pass, and
 the spec's checks plus the installed-package gate are recorded in
 [docs/spikes.md](docs/spikes.md). `pi install ./` makes the package
-active; Phase 4 (the agents and the workflow skill) is next.
+active; Phase 5 (the end-to-end run) is next.
 
 **Phase 2 done (2026-11-09).** The package skeleton is in place:
 [package.json](package.json), the four forge templates in

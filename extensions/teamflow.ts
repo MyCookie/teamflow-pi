@@ -29,19 +29,20 @@ const binDir = join(packageRoot, "bin");
 const managerPath = join(packageRoot, "manager.md");
 
 // Part 3 (D3): the ten teamflow subagents — teamflow's agents/ minus manager
-// (the main session). Plain names: no `package:` field, so canonical names
-// are plain (docs/spikes.md, Spike 1).
+// (the main session). Canonical names are namespaced: agent frontmatter sets
+// `package: teamflow`, so each registers as teamflow.<name> (Phase 4, human
+// decision — avoids shadowing pi-subagents' builtin `researcher`).
 const TEAMFLOW_AGENTS = [
-	"architect-reviewer",
-	"docs-reviewer",
-	"impl-lead",
-	"implementer",
-	"quality-reviewer",
-	"research-lead",
-	"researcher",
-	"review-lead",
-	"security-reviewer",
-	"simplicity-reviewer",
+	"teamflow.architect-reviewer",
+	"teamflow.docs-reviewer",
+	"teamflow.impl-lead",
+	"teamflow.implementer",
+	"teamflow.quality-reviewer",
+	"teamflow.research-lead",
+	"teamflow.researcher",
+	"teamflow.review-lead",
+	"teamflow.security-reviewer",
+	"teamflow.simplicity-reviewer",
 ];
 
 export default function (pi: ExtensionAPI) {

@@ -1239,3 +1239,82 @@ Verification (all run by me):
 Model: local vllm Qwen (same as the Phase 3 gates).
 
 **Status: DONE**
+
+## Phase 4, Task 2 — the ten subagents + spawn table (2026-11-11T18:22Z)
+
+Built `agents/` — ten subagent files (the manager is the main session, D3,
+so it is not an agent). Two human decisions drove the shape:
+
+1. **Canonical names are namespaced `teamflow.<name>`.** Every agent's
+   frontmatter sets `package: teamflow`, so `name: researcher` registers
+   as `teamflow.researcher` — it does not shadow pi-subagents' builtin
+   `researcher`. Confirmed against the documented rule
+   (`~/.pi/agent/npm/node_modules/pi-subagents/docs/agents.md:468`:
+   "A file with `name: scout` and `package: code-analysis` registers as
+   `code-analysis.scout`").
+2. **The researcher gets the web tools from `pi-web-access@0.47.0`**
+   (installed at user scope): `web_search` + `fetch_content` — the Pi
+   equivalents of teamflow's `WebSearch`/`WebFetch`.
+
+**Frontmatter (all ten):** `package: teamflow`; no `model` (D5);
+`inheritProjectContext: true`; `skills: workflow`, and every body's first
+step reads the workflow skill. The three leads carry `subagent` + the
+spawn table as namespaced `allowedAgents`; the seven workers carry no
+`subagent` and no `allowedAgents`. Tool allowlists follow teamflow's
+per-role lists (Read→read, Grep→grep, Glob→find, Bash→bash, Edit→edit,
+Write→write). `simplicity-reviewer` also carries `ponytail,
+ponytail-audit, ponytail-debt` (D6; installed at user scope).
+
+**Phase 3 rework to namespaced names** (the ripple of decision 1):
+`extensions/teamflow-lib.ts` `LEADS` → the three namespaced leads and the
+refusal names them; `extensions/teamflow.ts` `TEAMFLOW_AGENTS` → all ten
+namespaced names (the capability ceiling). `extensions/teamflow-lib.test.ts`
+spawn tests updated + one new regression: a plain, un-namespaced lead name
+is refused.
+
+**New gate test** `tests/test_spawn_table.py` (11 tests): parses every
+agent's frontmatter and checks it against the spawn table — exact
+`allowedAgents` per lead by set-equality (so widening *or* shrinking
+fails), workers have no `subagent`/`allowedAgents`, namespaced canonical
+names, no `model`, `inheritProjectContext: true`, the `workflow` skill on
+all, researcher web tools, implementer edit/write, the five reviewers
+read-only, simplicity-reviewer ponytail skills. Plus a guard self-test
+proving a widened lead is detected.
+
+**Verification (all run by me):**
+
+- `node --test extensions/teamflow-lib.test.ts` → 14 pass (was 13; +1
+  plain-name regression).
+- `python3 -m unittest tests.test_spawn_table -v` → 11 pass.
+- **Negative (the plan's required failure):** temporarily widened
+  `research-lead` `allowedAgents` to `teamflow.researcher,
+  teamflow.implementer` → the test **failed** (`research-lead:
+  allowedAgents must be exactly ['researcher'], got ['implementer',
+  'researcher'] (widening the spawn table is a decision)`); restored →
+  passes.
+- `./scripts/gate.sh` → green, **149 tests** (was 138; +11 spawn-table).
+
+**Live (installed the package, then `pi remove .`):** Pi 1.5.0,
+pi-subagents 0.87.0, model `vllm/nvidia/Qwen3.8-27B-NVFP4` (local vllm).
+
+- **Registered names:** a fresh session's `subagent` `action:"list"`
+  shows all ten as `teamflow.<name>`, and the builtin `researcher` (plain)
+  is a separate entry — no shadowing.
+- **Depth-1 gate:** `pi --teamflow`, launch `teamflow.implementer` →
+  refused verbatim: "The teamflow manager may only launch the leads:
+  teamflow.research-lead,teamflow.impl-lead,teamflow.review-lead."
+- **Depth-2 ceiling (the plan's top flagged risk):** `pi --teamflow`,
+  launch `teamflow.research-lead` whose only job was to spawn
+  `teamflow.implementer` → refused verbatim: "Capability ceiling from
+  agent:teamflow.research-lead, teamflow does not allow agent
+  'teamflow.implementer'. Allowed agents: teamflow.researcher." The lead
+  did not retry or reroute (workflow skill: never work around a refusal).
+  `allowedAgents` holds at depth 2; the plan's "no fallback yet" risk is
+  resolved.
+
+Note: after `pi remove .`, the ten `teamflow.*` names still list when `pi`
+is run from the teamflow-pi directory — that is cwd project discovery via
+`package.json` `pi.subagents.agents: ["./agents"]`, not a leftover install
+(`pi list` shows no teamflow-pi package; no install record under `~/.pi`).
+
+**Status: DONE**
