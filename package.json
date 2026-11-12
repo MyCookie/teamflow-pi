@@ -1,6 +1,7 @@
 {
   "name": "teamflow-pi",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "teamflow's agent pipeline — manager, three leads, seven workers — on Pi with pi-subagents; Issues and PRs through one CLI, tf.",
   "keywords": [
     "pi-package"

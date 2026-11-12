@@ -77,5 +77,5 @@ Read on 2026-11-05: teamflow `0.22.2` at commit `423109c`, Pi `1.5.0`
 
 ## License
 
-teamflow is Apache-2.0, copyright 2026 Ashish Kansara. This port's license
-is not yet chosen.
+teamflow is Apache-2.0. This port is also licensed under
+[Apache License 2.0](LICENSE), copyright 2026 Ashish Kansara.
