@@ -11,6 +11,22 @@ records or on GitHub.
 
 ## Status
 
+**Phase 5 done (2026-11-11) — the whole plan is complete.** The
+definition of done was run live in a scratch repository and recorded in
+[docs/running.md](docs/running.md): project-local `pi install` of the
+package, `tf setup --apply` (local forge), a stated goal through
+`pi --teamflow -p`, and a merged PR (local forge) through one full
+per-PR round — review-lead plus all five specialists, one recorded
+verdict, the merge executed by review-lead, gate green on `main`. The
+run exposed and fixed one port gap: `manager.md` now passes
+`worktree: true` on every review-lead spawn, the Pi mapping of the
+original `isolation: worktree` frontmatter that Pi has no equivalent
+of. Failures that did not affect the rules (a 30-minute run timeout on
+the slow local model, one degenerate model loop after a resume, a
+print-mode flag-order quirk in Pi) are recorded there with their
+dispositions. `manager.md` is now the real manager prompt (it was a
+placeholder when Phase 3 landed).
+
 **Phase 4 done (2026-11-11).** The workflow skill
 ([skills/workflow](skills/workflow/SKILL.md)) and the ten subagents
 ([agents/](agents/)) are built. Each agent sets `package: teamflow`, so
@@ -36,7 +52,8 @@ leads (`spawnDecision`, fails closed). Built test-first against
 [docs/extension-spec.md](docs/extension-spec.md) — 14 lib tests pass, and
 the spec's checks plus the installed-package gate are recorded in
 [docs/spikes.md](docs/spikes.md). `pi install ./` makes the package
-active; Phase 5 (the end-to-end run) is next.
+active. Phase 5 (the end-to-end run) then landed on 2026-11-11 — see
+above.
 
 **Phase 2 done (2026-11-09).** The package skeleton is in place:
 [package.json](package.json), the four forge templates in

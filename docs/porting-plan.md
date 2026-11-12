@@ -2,8 +2,8 @@
 
 How to get from teamflow (Claude Code) to teamflow-pi. Inputs:
 [source-inventory.md](source-inventory.md) (what exists) and
-[pi-mapping.md](pi-mapping.md) (what Pi offers). This is a plan: none of it
-has been built or run.
+[pi-mapping.md](pi-mapping.md) (what Pi offers). All five phases are done;
+each is recorded with what was run and what it printed.
 
 ## Goal
 
@@ -145,11 +145,21 @@ workflow skill; the spawn table as `allowedAgents` on the three leads; no
   all ten register as `teamflow.<name>`, the depth-1 gate refuses the
   workers, and `allowedAgents` holds at depth 2.
 
-### Phase 5: end-to-end run
+### Phase 5: end-to-end run — DONE 2026-11-11
 
 - In a scratch repository: install, `tf setup --apply`, a small goal.
 - Done: the definition of done above, recorded in `docs/running.md` with
   versions, commands and what happened, including what failed.
+
+Done on 2026-11-11 (Pi 1.5.0, pi-subagents 0.87.0, model
+`vllm/nvidia/Qwen3.8-27B-NVFP4`). The run reached a merged PR through one
+full per-PR round in `local` forge mode, and the record, including four
+failures and their dispositions, is in [running.md](running.md). One port
+gap was fixed during the run: `manager.md` now passes `worktree: true`
+on every review-lead spawn — the Pi mapping of the original
+`isolation: worktree` frontmatter, which the Pi port had dropped.
+`manager.md` is now the real manager prompt (it was a placeholder when
+Phase 3 landed). The whole plan is complete.
 
 ### Later (not in scope until Phase 5 passes)
 
